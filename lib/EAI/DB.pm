@@ -336,10 +336,10 @@ sub storeInDB ($$) {
 				if ($deleteBeforeInsertSelector && !$beforeInsert{$deleteBeforeInsertSelector}) {
 					$logger->info("deleting data from $schemaName.$tableName, criteria: $deleteBeforeInsertSelector");
 					my $dostring = "delete from $schemaName.$tableName WHERE $deleteBeforeInsertSelector";
-					$dbh->do($dostring) or die $DBI::errstr." with $dostring ".$debugKeyIndicator;
+					my $affectedRows = $dbh->do($dostring) or die $DBI::errstr." with $dostring ".$debugKeyIndicator;
 					# mark deleteBeforeInsertSelector as executed for these data
 					$beforeInsert{$deleteBeforeInsertSelector} = 1;
-					$logger->info("entering data into $schemaName.$tableName");
+					$logger->info("entering data into $schemaName.$tableName after delete before insert, deleted rows: $affectedRows ($DBI::errstr)");
 				}
 				if ($logger->is_trace) {
 					$logger->trace("data to be inserted:");

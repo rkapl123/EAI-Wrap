@@ -8,7 +8,7 @@ BEGIN {
 }
 
 our @ISA = qw(Exporter);
-our @EXPORT = qw(%common %config %execute @loads @optload %opt readConfigFile getSensInfo setupConfigMerge getOptions setupEAIWrap extractConfigs checkHash getLogFPathForMail getLogFPath MailFilter setErrSubject setupLogging checkStartingCond sendGeneralMail looks_like_number get_logger);
+our @EXPORT = qw($EAI_WRAP_CONFIG_PATH $EAI_WRAP_SENS_CONFIG_PATH %common %config %execute @loads @optload %opt readConfigFile getSensInfo setupConfigMerge getOptions setupEAIWrap extractConfigs checkHash getLogFPathForMail getLogFPath MailFilter setErrSubject setupLogging checkStartingCond sendGeneralMail looks_like_number get_logger);
 
 my %hashCheck = (
 	common => {
@@ -19,17 +19,18 @@ my %hashCheck = (
 		task => {},
 	},
 	config => { # parameter category for site global settings, defined in site.config and other associated configs loaded at INIT
-		checkLookup => {"test.pl" => {errmailaddress => "",errmailsubject => "",timeToCheck =>, freqToCheck => "", logFileToCheck => "", logcheck => "",logRootPath =>""},}, # used for logchecker, each entry of the hash defines a log to be checked, defining errmailaddress to receive error mails, errmailsubject, timeToCheck as earliest time to check for existence in log, freqToCheck as frequency of checks (daily/monthly/etc), logFileToCheck as the name of the logfile to check, logcheck as the regex to check in the logfile and logRootPath as the folder where the logfile is found
+		checkLookup => {"test.pl" => {errmailaddress => "",errmailsubject => "",timeToCheck =>, freqToCheck => "", logFileToCheck => "", logcheck => "",logRootPath =>""},}, # used for logchecker, each entry of the hash defines a log to be checked, defining errmailaddress to receive error mails, errmailsubject, timeToCheck as earliest time to check for existence in log, freqToCheck as frequency of checks (daily/monthly/etc), logFileToCheck as the name of the logfile to check, logcheck as the regex to check in the logfile and logRootPath as the folder where the logfile is found. lookup key: $execute{scriptname} + $execute{addToScriptName}
 		errmailaddress => "", # default mail address for central logcheck/errmail sending 
 		errmailsubject => "", # default mail subject for central logcheck/errmail sending 
+		executeOnInit => "", # code to be executed during INIT of EAI::Wrap to allow for assignment of config/execute parameters from commandline params BEFORE Logging!
 		folderEnvironmentMapping => {Test => "Test", Dev => "Dev", "" => "Prod"}, # Mapping for $execute{envraw} to $execute{env}
 		fromaddress => "", # from address for central logcheck/errmail sending, also used as default sender address for sendGeneralMail
-		historyFolder => {"" => "default",}, # folders where downloaded files are historized, lookup key for scripts with special history folder, default in "" =>
-		historyFolderUpload => {"" => "default",}, # folders where uploaded files are historized, lookup as above
+		historyFolder => {"" => "default",}, # folders where downloaded files are historized, lookup key as checkLookup, default in "" =>
+		historyFolderUpload => {"" => "default",}, # folders where uploaded files are historized, lookup key as checkLookup, default in "" =>
 		logCheckHoliday => "", # calendar for business days in central logcheck/errmail sending
 		logs_to_be_ignored_in_nonprod => '', # logs to be ignored in central logcheck/errmail sending
-		logRootPath => {"" => "default",}, # paths to log file root folders (environment is added to that if non production), lookup as historyFolder
-		redoDir => {"" => "default",}, # folders where files for redo are contained, lookup as historyFolder
+		logRootPath => {"" => "default",}, # paths to log file root folders (environment is added to that if non production), lookup key as checkLookup, default in "" =>
+		redoDir => {"" => "default",}, # folders where files for redo are contained, lookup key as checkLookup, default in "" =>
 		sensitive => {"prefix" => {user=>"",pwd =>"",hostkey=>"",privkey =>""},}, # hash lookup for sensitive access information in DB and FTP (lookup keys are set with DB{prefix} or FTP{prefix}), may also be placed outside of site.config; all sensitive keys can also be environment lookups, e.g. hostkey=>{Test => "", Prod => ""} to allow for environment specific setting
 		smtpServer => "", # smtp server for den (error) mail sending
 		smtpTimeout => 60, # timeout for smtp response
@@ -42,6 +43,7 @@ my %hashCheck = (
 	},
 	execute => { # hash of parameters for current task execution which is not set by the user but can be used to set other parameters and control the flow
 		alreadyMovedOrDeleted => {}, # hash for checking the already moved or deleted files, to avoid moving/deleting them again at cleanup
+		addToScriptName => "", # this can be set to be added to the scriptname for config{checkLookup} keys, e.g. some passed parameter.
 		env => "", # Prod, Test, Dev, whatever
 		envraw => "", # Production has a special significance here as being the empty string (used for paths). Otherwise like env.
 		errmailaddress => "", # for central logcheck/errmail sending in current process
@@ -65,7 +67,7 @@ my %hashCheck = (
 		retrievedFiles => [], # files retrieved from FTP or redo directory
 		retryBecauseOfError => 1, # retryBecauseOfError shows if a rerun occurs due to errors (for successMail) and also prevents several API calls from being run again.
 		retrySeconds => 60, # how many seconds are passed between retries. This is set on error with process=>retrySecondsErr and if planned retry is defined with process=>retrySecondsPlanned
-		scriptname => "", # name of the current process script
+		scriptname => "", # name of the current process script, also used in log/history setup together with addToScriptName for config{checkLookup} keys
 		timeToCheck => "", # for logchecker: scheduled time of job (don't look earlier for log entries)
 	},
 	load => {
@@ -123,8 +125,9 @@ my %hashCheck = (
 		format_beforeHeader => "", # additional String to be written before the header in write text
 		format_dateColumns => [], # numeric array of columns that contain date values (special parsing) in excel files
 		format_decimalsep => "", # decimal separator used in numbers of sourcefile (defaults to . if not given)
-		format_headerColumns => [], # numeric array of columns that contain data in excel files
-		format_header => "", # format_sep separated string containing header fields
+		format_headerColumns => [], # optional numeric array of columns that contain data in excel files (defaults to all columns starting with first column up to format_targetheader length)
+		format_header => "", # format_sep separated string containing header fields (optional in excel files, only used to check against existing header row)
+		format_headerskip => 1, # skip until row-number for checking header row against format_header in excel files
 		format_eol => "", # for quoted csv specify special eol character (allowing newlines in values)
 		format_fieldXpath => {}, # for XML reading, hash with field => xpath to content association entries
 		format_fix => 1, # for text writing, specify whether fixed length format should be used (requires format_padding)
@@ -132,12 +135,12 @@ my %hashCheck = (
 		format_padding => {}, # for text writing, hash with field number => padding to be applied for fixed length format
 		format_poslen => [], # array of positions/length definitions: e.g. "poslen => [(0,3),(3,3)]" for fixed length format text file parsing
 		format_quotedcsv => 1, # special parsing/writing of quoted csv data using Text::CSV
-		format_sep => "", # separator string for csv format, regex for split for other separated formats
+		format_sep => "", # separator string for csv format, regex for split for other separated formats. Also needed for splitting up format_header and format_targetheader (Excel and XML-formats use tab as default separator here).
 		format_sepHead => "", # special separator for header row in write text, overrides format_sep
 		format_skip => "", # either numeric or string, skip until row-number if numeric or appearance of string otherwise in reading textfile
 		format_stopOnEmptyValueColumn => 1, # for excel reading, stop row parsing when a cell with this column number is empty (denotes end of data, to avoid very long parsing).
 		format_suppressHeader => 1, # for textfile writing, suppress output of header
-		format_targetheader => "", # format_sep separated string containing target header fields (= the field names in target/database table)
+		format_targetheader => "", # format_sep separated string containing target header fields (= the field names in target/database table). optional for XML and tabular textfiles, defaults to format_header if not given there.
 		format_thousandsep => "", # thousand separator used in numbers of sourcefile (defaults to , if not given)
 		format_worksheetID => 1, # worksheet number for excel reading, this should always work
 		format_worksheet => "", # alternatively the worksheet name can be passed, this only works for new excel format (xlsx)
@@ -213,9 +216,11 @@ my %ignoreType = (
 );
 
 our %common;our %config;our @loads;our %execute;our @optload;our %opt;
+our $EAI_WRAP_CONFIG_PATH; our $EAI_WRAP_SENS_CONFIG_PATH;
 my @coreConfig = ("DB","File","FTP","process");
 my @commonCoreConfig = (@coreConfig,"task");
 my @allConfig = (@commonCoreConfig,"config");
+my $logConfig;
 
 # read given config file (eval perl code)
 sub readConfigFile ($) {
@@ -228,10 +233,11 @@ sub readConfigFile ($) {
 		close CONFIGFILE;
 	}
 	unless (my $return = eval $siteCONFIGFILE) {
-		die("Error parsing config file $configfilename : $@") if $@;
-		die("Error executing config file $configfilename : $!") unless defined $return;
+		die("Error parsing config file $configfilename: $@") if $@;
+		die("Error executing config file $configfilename: $!") unless defined $return;
 		die("Error executing config file $configfilename") unless $return;
 	}
+	print STDOUT "read $configfilename\n";
 }
 
 # get sensitive info from $config{sensitive}{$prefix}{$key}
@@ -332,30 +338,6 @@ sub getOptions {
 	}
 }
 
-# set up EAI configuration
-sub setupEAIWrap {
-	my $logger = get_logger();
-	setupConfigMerge(); # %config (from site.config, amended with command line options) and %common (from process script, amended with command line options) are merged into %common and all @loads (amended with command line options)
-	# starting log entry: process script name + %common parameters, used for process monitoring (%config is not written due to sensitive information)
-	$Data::Dumper::Indent = 0; # temporarily flatten dumper output for single line
-	my $configdump = Dumper(\%common);
-	$configdump =~ s/\s+//g;$configdump =~ s/\$VAR1=//;$configdump =~ s/,'/,/g;$configdump =~ s/{'/{/g;$configdump =~ s/'=>/=>/g; # compress information
-	my $exedump = Dumper(\%execute);
-	$exedump =~ s/\s+//g;$exedump =~ s/\$VAR1=//;$exedump =~ s/,'/,/g;$exedump =~ s/{'/{/g;$exedump =~ s/'=>/=>/g; # compress information
-	$logger->info("==============================================================================================");
-	$logger->info("started $execute{scriptname} in $execute{homedir} (environment $execute{env}), execute parameters: $exedump common parameters: $configdump");
-	if ($logger->is_debug) {
-		for my $i (0..$#loads) {
-			my $loaddump = Dumper($loads[$i]);
-			$loaddump =~ s/\s+//g;$loaddump =~ s/\$VAR1=//;$loaddump =~ s/,'/,/g;$loaddump =~ s/{'/{/g;$loaddump =~ s/'=>/=>/g; # compress information
-			$logger->debug("load $i parameters: $loaddump");
-		}
-	}
-	$Data::Dumper::Indent = 2;
-	# check starting conditions and exit if met (returned true)
-	checkStartingCond(\%common) and exit 0;
-}
-
 # extract config hashes (DB,FTP,File,process) from $arg hash and return as list of hashes. The config hashes to be extracted are given in string list @required and returned in @ret
 sub extractConfigs ($$;@) {
 	my ($arg,@required) = @_;
@@ -416,7 +398,7 @@ sub MailFilter {
 # sets the error subject for the subsequent error mails from logger->error()
 sub setErrSubject ($) {
 	my $context = shift;
-	Log::Log4perl->appenders()->{"MAIL"}->{"appender"}->{"subject"} = [($execute{envraw} ? $execute{envraw}.": " : "").$execute{errmailsubject}.", $context"];
+	Log::Log4perl->appenders()->{"MAIL"}->{"appender"}->{"subject"} = [($execute{envraw} ? $execute{envraw}.": " : "").$execute{errmailsubject}.": $context"];
 }
 
 # setup logging for Log4perl
@@ -424,7 +406,7 @@ sub setupLogging {
 	# get logRootPath, historyFolder, historyFolderUpload and redoDir from lookups in config.
 	# if they are not in the script home directory (having an absolute path) then build environment-path separately for end folder (script home directory is already in its environment)
 	for my $foldKey ("redoDir","logRootPath","historyFolder","historyFolderUpload") {
-		my $folder = $config{$foldKey}{$execute{scriptname}};
+		my $folder = $config{$foldKey}{$execute{scriptname}.$execute{addToScriptName}};
 		my $defaultFolder;
 		if (!$folder) {
 			$folder = $config{$foldKey}{""}; # take default, if no lookup defined for script
@@ -439,16 +421,17 @@ sub setupLogging {
 		}
 	}
 	my $logFolder = $execute{logRootPath};
-	# if logFolder doesn't exist, die with error message.
+	# if logFolder doesn't exist, warn and log to $execute{homedir}.
 	my $noLogFolderErr;
 	if (! -e $logFolder) {
-		$noLogFolderErr = "can't log to logfolder $logFolder (set special with \$config{logRootPath}{".$execute{scriptname}."} or default with \$config{logRootPath}{\"\"}, folder doesn't exist. Setting to $execute{homedir}";
+		$noLogFolderErr = "can't log to logfolder $logFolder (set specially for script with \$config{logRootPath}{".$execute{scriptname}.$execute{addToScriptName}."} or default with \$config{logRootPath}{\"\"}), folder doesn't exist. Setting to $execute{homedir}";
 		$logFolder = $execute{homedir};
 	}
 	$LogFPath = $logFolder."/".$execute{scriptname}.".log";
-	$LogFPathDayBefore = $logFolder.get_curdate().".". $execute{scriptname}.".log"; # if mail is watched next day, show the rolled file here
-	my $logConfig = $ENV{EAI_WRAP_CONFIG_PATH}."/".$execute{envraw}."/log.config"; # environment dependent log config, Prod is in EAI_WRAP_CONFIG_PATH
-	die "no log.config existing in $logConfig" if (! -e $logConfig);
+	$LogFPathDayBefore = $logFolder."/".get_curdate().".". $execute{scriptname}.".log"; # if mail is watched next day, show the rolled file here
+	$logConfig = $EAI_WRAP_CONFIG_PATH."/".$execute{envraw}."/log.config"; # environment dependent log config, Prod is in EAI_WRAP_CONFIG_PATH
+	$logConfig = $EAI_WRAP_CONFIG_PATH."/log.config" if (! -e $logConfig); # fall back to main config log.config
+	die "log.config neither in $logConfig nor in ".$EAI_WRAP_CONFIG_PATH."/log.config" if (! -e $logConfig);
 	Log::Log4perl::init($logConfig);
 	my $logger = get_logger();
 	$logger->warn($noLogFolderErr) if $noLogFolderErr;
@@ -456,20 +439,54 @@ sub setupLogging {
 		# configure err mail sending
 		MIME::Lite->send('smtp', $config{smtpServer}, AuthUser=>$config{sensitive}{smtpAuth}{user}, AuthPass=>$config{sensitive}{smtpAuth}{pwd}, Timeout=>$config{smtpTimeout});
 		# get email from central log error handling $config{checkLookup}{<>};
-		$execute{errmailaddress} = $config{checkLookup}{$execute{scriptname}}{errmailaddress}; # errmailaddress for the task script
-		$execute{errmailsubject} = $config{checkLookup}{$execute{scriptname}}{errmailsubject}; # errmailsubject for the task script
+		$execute{errmailaddress} = $config{checkLookup}{$execute{scriptname}.$execute{addToScriptName}}{errmailaddress}; # errmailaddress for the task script
+		$execute{errmailsubject} = $config{checkLookup}{$execute{scriptname}.$execute{addToScriptName}}{errmailsubject}; # errmailsubject for the task script
 		$execute{errmailaddress} = $config{errmailaddress} if !$execute{errmailaddress};
 		$execute{errmailsubject} = $config{errmailsubject} if !$execute{errmailsubject};
 		$execute{errmailaddress} = $config{testerrmailaddress} if $execute{envraw};
 		if ($execute{errmailaddress}) {
-			setErrSubject(""); # no context 
 			Log::Log4perl->appenders()->{"MAIL"}->{"appender"}->{"to"} = [$execute{errmailaddress}];
 		} else {
 			# Production: no errmailaddress found, error message to Testerrmailaddress (if set)
 			Log::Log4perl->appenders()->{"MAIL"}->{"appender"}->{"to"} = [$config{testerrmailaddress}] if $config{testerrmailaddress};
-			$logger->error("no errmailaddress found for ".$execute{scriptname}.", no entry found in \$config{checkLookup}{$execute{scriptname}}");
+			$logger->error("no errmailaddress found for ".$execute{scriptname}.$execute{addToScriptName}.", no entry found in \$config{checkLookup}{$execute{scriptname}.$execute{addToScriptName}}");
+		}
+		setErrSubject("Setting up EAI.Wrap"); # general context after logging initialization: setup of EAI.Wrap by script
+	}
+}
+
+# set up EAI configuration
+sub setupEAIWrap {
+	my $logger = get_logger();
+	setupConfigMerge(); # %config (from site.config, amended with command line options) and %common (from process script, amended with command line options) are merged into %common and all @loads (amended with command line options)
+	# starting log entry: process script name + %common parameters, used for process monitoring (%config is not written due to sensitive information)
+	$Data::Dumper::Indent = 0; # temporarily flatten dumper output for single line
+	$Data::Dumper::Sortkeys = 1; # sort keys to get outputs easier to read
+	my $configdump = Dumper(\%common);
+	$configdump =~ s/\s+//g;$configdump =~ s/\$VAR1=//;$configdump =~ s/,'/,/g;$configdump =~ s/{'/{/g;$configdump =~ s/'=>/=>/g; # compress information
+	my $exedump = Dumper(\%execute);
+	$exedump =~ s/\s+//g;$exedump =~ s/\$VAR1=//;$exedump =~ s/,'/,/g;$exedump =~ s/{'/{/g;$exedump =~ s/'=>/=>/g; # compress information
+	$logger->info("==============================================================================================");
+	$logger->info("started $execute{scriptname} in $execute{homedir} (environment $execute{env}), execute parameters: $exedump common parameters: $configdump");
+	if ($logger->is_debug) {
+		for my $i (0..$#loads) {
+			my $loaddump = Dumper($loads[$i]);
+			$loaddump =~ s/\s+//g;$loaddump =~ s/\$VAR1=//;$loaddump =~ s/,'/,/g;$loaddump =~ s/{'/{/g;$loaddump =~ s/'=>/=>/g; # compress information
+			$logger->debug("load $i parameters: $loaddump");
 		}
 	}
+	$Data::Dumper::Indent = 2;
+	# check starting conditions and exit if met (returned true)
+	checkStartingCond(\%common) and exit 0;
+	setErrSubject("General EAI.Wrap script execution"); # general context after setup of EAI.Wrap
+}
+
+# refresh modules and logging config for changes
+sub refresh() {
+	# refresh modules to enable correction of processing without restart
+	Module::Refresh->refresh;
+	# also check for changes in logging configuration
+	Log::Log4perl::init($logConfig);
 }
 
 # check starting conditions and return 1 if met
@@ -569,7 +586,7 @@ EAI::Common - Common parts for the EAI::Wrap package
 
 =head1 SYNOPSIS
 
- %config .. hash for global config (set in $ENV{EAI_WRAP_CONFIG_PATH}/site.config, amended with $ENV{EAI_WRAP_CONFIG_PATH}/additional/*.config)
+ %config .. hash for global config (set in $EAI_WRAP_CONFIG_PATH/site.config, amended with $EAI_WRAP_CONFIG_PATH/additional/*.config)
  %common .. common load configs for the task script
  @loads .. list of hashes defining specific load processes
  %execute .. hash of parameters for current running task script (having one or multiple loads)

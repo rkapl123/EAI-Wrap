@@ -20,19 +20,26 @@ BEGIN {
 use EAI::Common; use EAI::DateUtil; use EAI::DB; use EAI::File; use EAI::FTP;
 
 our @ISA = qw(Exporter);
-our @EXPORT = qw(%common %config %execute @loads @optload %opt setupEAIWrap removeFilesinFolderOlderX openDBConn openFTPConn redoFiles getLocalFiles getFilesFromFTP getFiles checkFiles extractArchives getAdditionalDBData readFileData dumpDataIntoDB markProcessed writeFileFromDB putFileInLocalDir markForHistoryDelete uploadFileToFTP uploadFileCMD uploadFile processingEnd processingPause moveFilesToHistory deleteFiles
+our @EXPORT = qw(%common %config %execute @loads @optload %opt removeFilesinFolderOlderX openDBConn openFTPConn redoFiles getLocalFiles getFilesFromFTP getFiles checkFiles extractArchives getAdditionalDBData readFileData dumpDataIntoDB markProcessed writeFileFromDB putFileInLocalDir markForHistoryDelete uploadFileToFTP uploadFileCMD uploadFile processingEnd processingPause moveFilesToHistory deleteFiles
 %months %monate get_curdate get_curdatetime get_curdate_dot formatDate formatDateFromYYYYMMDD get_curdate_dash get_curdate_gen get_curdate_dash_plus_X_years get_curtime get_curtime_HHMM get_lastdateYYYYMMDD get_lastdateDDMMYYYY is_first_day_of_month is_last_day_of_month get_last_day_of_month weekday is_weekend is_holiday first_week first_weekYYYYMMDD last_week last_weekYYYYMMDD convertDate convertDateFromMMM convertDateToMMM convertToDDMMYYYY addDays addDaysHol addMonths subtractDays subtractDaysHol convertcomma convertToThousendDecimal get_dateseries parseFromDDMMYYYY parseFromYYYYMMDD convertEpochToYYYYMMDD
 newDBH beginWork commit rollback readFromDB readFromDBHash doInDB storeInDB deleteFromDB updateInDB
-removeFilesOlderX fetchFiles putFile moveTempFile archiveFiles login
+readText readExcel readXML writeText writeExcel
+removeFilesOlderX fetchFiles putFile moveTempFile archiveFiles removeFiles login
 readConfigFile getSensInfo setupConfigMerge getOptions setupEAIWrap extractConfigs checkHash setupLogging checkStartingCond sendGeneralMail
 get_logger Dumper);
 
 # initialize module, reading all config files and setting basic execution variables
 sub INIT {
 	# read site config, additional configs and sensitive config in alphabetical order (allowing precedence)
-	EAI::Common::readConfigFile($ENV{EAI_WRAP_CONFIG_PATH}."/site.config");
-	EAI::Common::readConfigFile($_) for sort glob($ENV{EAI_WRAP_CONFIG_PATH}."/additional/*.config");
-	EAI::Common::readConfigFile($_) for sort glob($ENV{EAI_WRAP_SENS_CONFIG_PATH}."/*.config");
+	STDOUT->autoflush(1);
+	$EAI_WRAP_CONFIG_PATH = $ENV{EAI_WRAP_CONFIG_PATH};
+	$EAI_WRAP_SENS_CONFIG_PATH = $ENV{EAI_WRAP_SENS_CONFIG_PATH};
+	$EAI_WRAP_CONFIG_PATH =~ s/\\/\//g;
+	$EAI_WRAP_SENS_CONFIG_PATH =~ s/\\/\//g;
+	print STDOUT "EAI_WRAP_CONFIG_PATH: ".($EAI_WRAP_CONFIG_PATH ? $EAI_WRAP_CONFIG_PATH : "not set").", EAI_WRAP_SENS_CONFIG_PATH: ".($EAI_WRAP_SENS_CONFIG_PATH ? $EAI_WRAP_SENS_CONFIG_PATH : "not set")."\n";
+	EAI::Common::readConfigFile($EAI_WRAP_CONFIG_PATH."/site.config");
+	EAI::Common::readConfigFile($_) for sort glob($EAI_WRAP_CONFIG_PATH."/additional/*.config");
+	EAI::Common::readConfigFile($_) for sort glob($EAI_WRAP_SENS_CONFIG_PATH."/*.config");
 	
 	$execute{homedir} = File::Basename::dirname(File::Spec->rel2abs((caller(0))[1])); # folder, where the main script is being executed.
 	$execute{scriptname} = File::Basename::fileparse((caller(0))[1]);
@@ -45,11 +52,18 @@ sub INIT {
 		$execute{env} = $config{folderEnvironmentMapping}{''};
 	}
 	if ($execute{envraw}) { # for non-production environment read separate configs, if existing
-		EAI::Common::readConfigFile($ENV{EAI_WRAP_CONFIG_PATH}."/".$execute{envraw}."/site.config") if -e $ENV{EAI_WRAP_CONFIG_PATH}."/".$execute{envraw}."/site.config";
-		EAI::Common::readConfigFile($_) for sort glob($ENV{EAI_WRAP_CONFIG_PATH}."/".$execute{envraw}."/additional/*.config");
-		EAI::Common::readConfigFile($_) for sort glob($ENV{EAI_WRAP_SENS_CONFIG_PATH}."/".$execute{envraw}."/*.config");
+		EAI::Common::readConfigFile($EAI_WRAP_CONFIG_PATH."/".$execute{envraw}."/site.config") if -e $EAI_WRAP_CONFIG_PATH."/".$execute{envraw}."/site.config";
+		EAI::Common::readConfigFile($_) for sort glob($EAI_WRAP_CONFIG_PATH."/".$execute{envraw}."/additional/*.config");
+		EAI::Common::readConfigFile($_) for sort glob($EAI_WRAP_SENS_CONFIG_PATH."/".$execute{envraw}."/*.config");
 	}
 	EAI::Common::getOptions(); # getOptions before logging setup as centralLogHandling depends on interactive options passed
+	my $return = 1;
+	$return = eval $config{executeOnInit} if $config{executeOnInit};
+	unless ($return) {
+		die("Error parsing config{executeOnInit}: $@") if $@;
+		die("Error executing config{executeOnInit}: $!") unless defined $return;
+		die("Error executing config{executeOnInit}") unless $return;
+	}
 	EAI::Common::setupLogging();
 }
 
@@ -159,6 +173,7 @@ sub getLocalFiles ($) {
 	my $logger = get_logger();
 	my ($File,$process) = EAI::Common::extractConfigs($arg,"File","process");
 	$logger->debug("getLocalFiles");
+	EAI::Common::setErrSubject("Getting local files");
 	return if $execute{retryBecauseOfError} and !$process->{hadErrors};
 	if ($File->{localFilesystemPath}) {
 		my $localFilesystemPath = $File->{localFilesystemPath};
@@ -206,6 +221,7 @@ sub getFilesFromFTP ($) {
 	my $logger = get_logger();
 	my ($FTP,$File,$process) = EAI::Common::extractConfigs($arg,"FTP","File","process");
 	$logger->debug("getFilesFromFTP");
+	EAI::Common::setErrSubject("Getting files from ftp");
 	return if $execute{retryBecauseOfError} and !$process->{hadErrors};
 	@{$execute{retrievedFiles}} = (); # reset last retrieved, but this is also necessary to create the retrievedFiles hash entry for passing back the list from getFiles
 	if (defined($FTP->{remoteDir})) {
@@ -342,6 +358,7 @@ sub getAdditionalDBData ($;$) {
 	my $logger = get_logger();
 	my ($DB,$process) = EAI::Common::extractConfigs($arg,"DB","process");
 	$logger->debug("getAdditionalDBData");
+	EAI::Common::setErrSubject("Getting additional data from DB");
 	return 1 if $execute{retryBecauseOfError} and !$process->{hadErrors};
 	# reset additionalLookupData to avoid strange errors in retrying run. Also needed to pass data back as reference
 	%{$process->{additionalLookupData}} = ();
@@ -398,7 +415,7 @@ sub dumpDataIntoDB ($) {
 					$hadDBErrors=1;
 				};
 			}
-			# store data, tables are deleted unless explicitly marked
+			# store data, tables are deleted if explicitly marked
 			if ($DB->{dontKeepContent}) {
 				$logger->info("removing all data from Table $table ...");
 				EAI::DB::doInDB({doString => "delete from $table"});
@@ -414,7 +431,7 @@ sub dumpDataIntoDB ($) {
 				$logger->debug($DB->{postDumpProcessing});
 				eval $DB->{postDumpProcessing};
 				if ($@) {
-					$logger->error("error ($@) in eval postDumpProcessing: ".$DB->{postDumpProcessing});
+					$logger->error("error in eval postDumpProcessing: ".$DB->{postDumpProcessing}.": $@");
 					$hadDBErrors = 1;
 				}
 			}
@@ -425,7 +442,7 @@ sub dumpDataIntoDB ($) {
 					$logger->info("checking postDumpExec condition: ".$postDumpExec->{condition});
 					my $dopostdumpexec = eval $postDumpExec->{condition};
 					if ($@) {
-						$logger->error("error ($@) parsing postDumpExec condition: ".$postDumpExec->{condition});
+						$logger->error("error parsing postDumpExec condition: ".$postDumpExec->{condition}.": $@");
 						$hadDBErrors = 1;
 						last;
 					}
@@ -719,10 +736,8 @@ sub processingEnd {
 		}
 	}
 	unless ($execute{processEnd}) {
-		# refresh modules to enable correction of processing without restart
-		Module::Refresh->refresh;
-		# also check for changes in logging configuration
-		Log::Log4perl::init($ENV{EAI_WRAP_CONFIG_PATH}."/".$execute{envraw}."/log.config"); # environment dependent log config, Prod is in EAI_WRAP_CONFIG_PATH
+		# refresh modules and logging config for changes
+		EAI::Common::refresh();
 		# pausing processing/retry
 		my $retrySeconds = $execute{retrySeconds};
 		$retrySeconds = $common{task}{retrySecondsErr} if !$retrySeconds;
@@ -1101,7 +1116,7 @@ parameter category for site global settings, defined in site.config and other as
 
 =item checkLookup
 
-used for logchecker, each entry of the hash defines a log to be checked, defining errmailaddress to receive error mails, errmailsubject, timeToCheck as earliest time to check for existence in log, freqToCheck as frequency of checks (daily/monthly/etc), logFileToCheck as the name of the logfile to check, logcheck as the regex to check in the logfile and logRootPath as the folder where the logfile is found
+used for logchecker, each entry of the hash defines a log to be checked, defining errmailaddress to receive error mails, errmailsubject, timeToCheck as earliest time to check for existence in log, freqToCheck as frequency of checks (daily/monthly/etc), logFileToCheck as the name of the logfile to check, logcheck as the regex to check in the logfile and logRootPath as the folder where the logfile is found. lookup key: $execute{scriptname} + $execute{addToScriptName}
 
 =item errmailaddress
 
@@ -1110,6 +1125,10 @@ default mail address for central logcheck/errmail sending
 =item errmailsubject
 
 default mail subject for central logcheck/errmail sending 
+
+=item executeOnInit
+
+code to be executed during INIT of EAI::Wrap to allow for assignment of config/execute parameters from commandline params BEFORE Logging!
 
 =item folderEnvironmentMapping
 
@@ -1121,11 +1140,11 @@ from address for central logcheck/errmail sending, also used as default sender a
 
 =item historyFolder
 
-folders where downloaded files are historized, lookup key for scripts with special history folder, default in "" =>
+folders where downloaded files are historized, lookup key as checkLookup, default in "" =>
 
 =item historyFolderUpload
 
-folders where uploaded files are historized, lookup as above
+folders where uploaded files are historized, lookup key as checkLookup, default in "" =>
 
 =item logCheckHoliday
 
@@ -1137,11 +1156,11 @@ logs to be ignored in central logcheck/errmail sending
 
 =item logRootPath
 
-paths to log file root folders (environment is added to that if non production), lookup as historyFolder
+paths to log file root folders (environment is added to that if non production), lookup key as checkLookup, default in "" =>
 
 =item redoDir
 
-folders where files for redo are contained, lookup as historyFolder
+folders where files for redo are contained, lookup key as checkLookup, default in "" =>
 
 =item sensitive
 
@@ -1170,6 +1189,10 @@ hash of parameters for current task execution which is not set by the user but c
 =item alreadyMovedOrDeleted
 
 hash for checking the already moved or deleted files, to avoid moving/deleting them again at cleanup
+
+=item addToScriptName
+
+this can be set to be added to the scriptname for config{checkLookup} keys, e.g. some passed parameter.
 
 =item env
 
@@ -1265,7 +1288,7 @@ how many seconds are passed between retries. This is set on error with process=>
 
 =item scriptname
 
-name of the current process script
+name of the current process script, also used in log/history setup together with addToScriptName for config{checkLookup} keys
 
 =item timeToCheck
 
@@ -1473,11 +1496,15 @@ decimal separator used in numbers of sourcefile (defaults to . if not given)
 
 =item format_headerColumns
 
-numeric array of columns that contain data in excel files
+optional numeric array of columns that contain data in excel files (defaults to all columns starting with first column up to format_targetheader length)
 
 =item format_header
 
-format_sep separated string containing header fields
+format_sep separated string containing header fields (optional in excel files, only used to check against existing header row)
+
+=item format_headerskip
+
+skip until row-number for checking header row against format_header in excel files
 
 =item format_eol
 
@@ -1509,7 +1536,7 @@ special parsing/writing of quoted csv data using Text::CSV
 
 =item format_sep
 
-separator string for csv format, regex for split for other separated formats
+separator string for csv format, regex for split for other separated formats. Also needed for splitting up format_header and format_targetheader (Excel and XML-formats use tab as default separator here).
 
 =item format_sepHead
 
@@ -1529,7 +1556,7 @@ for textfile writing, suppress output of header
 
 =item format_targetheader
 
-format_sep separated string containing target header fields (= the field names in target/database table)
+format_sep separated string containing target header fields (= the field names in target/database table). optional for XML and tabular textfiles, defaults to format_header if not given there.
 
 =item format_thousandsep
 
@@ -1581,7 +1608,7 @@ folder for archived files on the FTP server
 
 =item dontMoveTempImmediately
 
-if 0 or missing: rename/move files immediately after writing to FTP to the final name, otherwise or 1: a call to EAI::FTP::moveTempFiles is required for that
+if 0 oder missing: rename/move files immediately after writing to FTP to the final name, otherwise/1: a call to EAI::FTP::moveTempFiles is required for that
 
 =item dontDoSetStat
 
@@ -1625,7 +1652,7 @@ maximum number of tries for connecting in login procedure
 
 =item onlyArchive
 
-only archive on the FTP server, requires archiveDir to be set
+only archive/remove on the FTP server, requires archiveDir to be set
 
 =item path
 

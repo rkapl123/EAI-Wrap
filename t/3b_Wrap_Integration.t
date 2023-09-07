@@ -1,9 +1,11 @@
 # to use these testcases, activate a local SFTP service and create $ENV{EAI_WRAP_CONFIG_PATH}."/Test/site.config with a user/pwd in the prefix sftp there.
 use strict; use warnings;
 use EAI::Wrap; use Archive::Zip qw( :ERROR_CODES :CONSTANTS ); use Test::More; use Test::File; use File::Spec; use Test::Timer; use Data::Dumper;
-my $author = eval "no warnings; getlogin eq 'rolan'";
-plan skip_all => "tests not automatic in non-author environment" if ($^O =~ /MSWin32/i and not $author);
-use Test::More tests => 11;
+if ($ENV{EAI_WRAP_AUTHORTEST}) {
+	plan tests => 11;
+} else {
+	plan skip_all => "tests not automatic in non-author environment";
+}
 
 # set up EAI::Wrap definitions
 %common = (

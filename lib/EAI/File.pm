@@ -48,10 +48,10 @@ sub readText {
 	}
 	@header = split $sep, $File->{format_header} if $File->{format_header};
 	@targetheader = split $sep, $File->{format_targetheader} if $File->{format_targetheader};
-	@targetheader = @header if !@targetheader; # if no specific targetheader defined use header instead
 	$Data::Dumper::Terse = 1;
 	$logger->debug("skip:$skip,sep:".Data::Dumper::qquote($origsep).",header:@header\ntargetheader:@targetheader");
 	$Data::Dumper::Terse = 0;
+	@targetheader = @header if !@targetheader; # if no specific targetheader defined use header instead
 
 	# read all files with same format
 	for my $filename (@filenames) {
@@ -151,30 +151,25 @@ LINE:
 }
 
 # global variables for excel parsing
-my $startRow; # starting row (header)
 my %dateColumn; # lookup for columns with date values (key: excel column, numeric, starting with 1, value: 1 (boolean))
 my %headerColumn; # lookup for header (key: excel column, numeric, starting with 1, actual column of header field, value: 1 (boolean))
 my $worksheet; # worksheet to be read, old format (numeric, starting with 1)
 my %dataRows; # intermediate storage for row values
 my $maxRow; # bottom most row
-my %xlheader; # expected excel headers (key: excel column/numeric, starting with 1, value: expected content of header in excel)
 my $stoppedOnEmptyValue; 
 my $stopOnEmptyValueColumn;
 
 # event handler for readExcel (xls format)
 sub cell_handler {
 	my $workbook    = $_[0];
-	# for the Spreadsheet::ParseExcel index, rows and columns are 0 based, generally semantics is 1 based
+	# for the Spreadsheet::ParseExcel index, rows and columns are 0 based, generally row semantics is 1 based
 	my $sheet_index = $_[1]+1;
 	my $row         = $_[2]+1;
 	my $col         = $_[3]+1;
 	my $cell        = $_[4];
 	my $logger = get_logger();
 	return unless $sheet_index eq $worksheet; # only parse desired worksheet
-	if ($row == $startRow && $headerColumn{$col}) {
-		# check header row here as well
-		$logger->error("expected header '".$xlheader{$col}."' not in column ".$col.", instead got: ".$cell->unformatted()) if $xlheader{$col} ne $cell->unformatted();
-	} elsif ($headerColumn{$col}) {
+	if ($headerColumn{$col}) {
 		if (($stopOnEmptyValueColumn eq $col && !$cell) || $stoppedOnEmptyValue) {
 			$logger->warn("empty cell in row $row / column $col and stopOnEmptyValueColumn is set to $col, skipping from here now") if !$stoppedOnEmptyValue; # pass warning only once
 			$stoppedOnEmptyValue = 1;
@@ -184,11 +179,11 @@ sub cell_handler {
 				# parse from US date format into YYYYMMDD, time parts are still ignored!
 				if ($cell) {
 					my ($m,$d,$y) = ($cell->value() =~ /(\d+?)\/(\d+?)\/(\d{4})/);
-					$dataRows{$row}{$headerColumn{$col}} = sprintf("%04d%02d%02d",$y,$m,$d);
+					$dataRows{$row}{$col} = sprintf("%04d%02d%02d",$y,$m,$d);
 				}
 			} else {
 				# non date values are fetched unformatted
-				$dataRows{$row}{$headerColumn{$col}} = $cell->unformatted() if $cell;
+				$dataRows{$row}{$col} = $cell->unformatted() if $cell;
 			}
 			$maxRow = $row if $maxRow < $row;
 			#$logger->info(Dumper($cell));
@@ -201,26 +196,24 @@ sub cell_handler {
 sub row_handlerXLSX {
 	my $rowDetails = $_[1];
 	my $logger = get_logger();
+	# for the Data::XLSX::Parser index, rows and columns are 1 based
 	for my $cellDetail (@$rowDetails) {
 		my $row = $cellDetail->{"row"};
 		my $col = $cellDetail->{"c"};
 		my $value = $cellDetail->{"v"};
 
-		if ($row == $startRow && $headerColumn{$col}) {
-			# check header row here as well
-			$logger->error("expected header '".$xlheader{$col}."' not in column ".$col.", instead got: $value") if $xlheader{$col} ne $value;
-		} elsif ($headerColumn{$col}) {
+		if ($headerColumn{$col}) {
 			if (($stopOnEmptyValueColumn eq $col && !$value) || $stoppedOnEmptyValue) {
 				$logger->warn("empty cell in row $row / column $col and stopOnEmptyValueColumn is set to $col, skipping from here now") if !$stoppedOnEmptyValue; # pass warning only once
 				$stoppedOnEmptyValue = 1;
 			} else { # data row
-				$logger->trace($headerColumn{$col}.":\n".Dumper($cellDetail)) if $logger->is_trace;
+				$logger->trace("Row $row, Column $col:\n".Dumper($cellDetail)) if $logger->is_trace;
 				if ($dateColumn{$col}) {
 					# date fields are converted from epoch format !
-					$dataRows{$row}{$headerColumn{$col}} = convertEpochToYYYYMMDD($value);
+					$dataRows{$row}{$col} = convertEpochToYYYYMMDD($value);
 				} else {
 					# non date values taken directly
-					$dataRows{$row}{$headerColumn{$col}} = $value;
+					$dataRows{$row}{$col} = $value;
 				}
 				$maxRow = $row if $maxRow < $row;
 			}
@@ -237,55 +230,55 @@ sub readExcel {
 	my ($lineProcessing, $fieldProcessing, $firstLineProc, $thousandsep, $decimalsep) = getcommon($File, $process);
 	my @filenames = @{$filenames} if $filenames;
 
-	# reset module global header configs
-	%dateColumn = undef;
-	%headerColumn = undef;
-	%xlheader=  undef;
+	# reset module global variables
+	undef %dateColumn;
+	undef %headerColumn;
 
 	# read format configuration
 	my (@header, @targetheader);
 	my $sep = $File->{format_sep} if $File->{format_sep};
 	$sep = "\t" if !$sep;
-	$logger->error("no header defined") if !$File->{format_header};
-	$logger->error("no targetheader defined") if !$File->{format_targetheader};
-	@header = split $sep, $File->{format_header};
-	@targetheader = split $sep, $File->{format_targetheader};
-	$logger->debug("skip: ". $File->{format_skip}.", header: @header \ntargetheader: @targetheader\ndateColumns: ".($File->{format_dateColumns} ? @{$File->{format_dateColumns}} : "")."\nheaderColumns: ".($File->{format_headerColumns} ? @{$File->{format_headerColumns}} : ""));
-	# prepare date field lookup
-	if ($File->{format_dateColumns}) {
+	$logger->error("no targetheader defined") if !$File->{format_targetheader}; # targetheader has to be given
+	@header = split $sep, $File->{format_header} if $File->{format_header}; # excel source header optional
+	@targetheader = split $sep, $File->{format_targetheader} if $File->{format_targetheader};
+	$logger->debug("skip: ". $File->{format_skip}."headerskip: ". $File->{format_headerskip}.", header: @header \ntargetheader: @targetheader\ndateColumns: ".($File->{format_dateColumns} ? @{$File->{format_dateColumns}} : "")."\nheaderColumns: ".($File->{format_headerColumns} ? @{$File->{format_headerColumns}} : ""));
+	# prepare dateColumn definition if needed/given
+	if ($File->{format_dateColumns} and ref($File->{format_dateColumns}) eq "ARRAY") {
 		for my $col (@{$File->{format_dateColumns}}) {
 			$dateColumn{$col} = 1;
 		}
 	}
-	# prepare column lookups 
-	# headerColumn: needed target column -> target field name
-	# xlheader: original column name -> expected content in header cell
-	my $i=0;
+	# prepare headerColumn definition
 	if ($File->{format_headerColumns} and ref($File->{format_headerColumns}) eq "ARRAY") {
-		$logger->debug("reading header definitions from format_headerColumns");
 		if (@{$File->{format_headerColumns}} != @header or @{$File->{format_headerColumns}} != @targetheader) {
 			$logger->error("format_headerColumns has different length than format_header or format_targetheader definitions");
 			return 0;
 		}
 		for my $col (@{$File->{format_headerColumns}}) {
-			$headerColumn{$col} = $targetheader[$i];
-			$xlheader{$col} = $header[$i];
-			$i++;
+			$headerColumn{$col} = 1;
 		}
 	} else {
-		$logger->debug("no format_headerColumns given, reading header definitions directly from \@header assuming simple list starting with column 1 having \@header length columns");
-		for (@header) {
-			$headerColumn{$i+1} = $targetheader[$i];
-			$xlheader{$i+1} = $header[$i];
-			$i++;
+		if (@header and @header != @targetheader) {
+			$logger->error("format_header has different length than format_targetheader definition");
+			return 0;
+		}
+		$logger->debug("no format_headerColumns given, assuming simple list starting with column 1, having \@header length columns and a header row") if @header;
+		$logger->debug("no format_headerColumns and no header definition given, assuming simple list starting with column 1, having \@targetheader length columns and no header row") if !@header;
+		for (my $i = 0; $i < @targetheader; $i++) {
+			$headerColumn{$i+1} = 1;
 		}
 	}
-	@header = @targetheader; # in the end only target header is important
+	$logger->debug("headerColumn:".Dumper(\%headerColumn).",dateColumn:".Dumper(\%dateColumn));
+	@header = @targetheader if !@header; # in the end only target header is important
 	
 	# read all files with same format
 	for my $filename (@filenames) {
+		my $startRow = 1; # starting data row
+		my $startRowHeader = 1; # starting header row for check (if format_header is defined)
+		$startRow += $File->{format_skip} if $File->{format_skip}; # skip additional rows for data begin, row semantics is 1 based
+		$startRowHeader += $File->{format_headerskip} if $File->{format_headerskip}; # skip additional rows for header row, row semantics is 1 based
+		$startRow = $startRowHeader + 1 if !$File->{format_skip} and $File->{format_header}; # set to header following row if format_skip not defined and format_header given
 		# reset module global variables
-		$startRow = 0; $startRow += $File->{format_skip} if $File->{format_skip};
 		%dataRows = undef;
 		$maxRow = 1;
 
@@ -296,7 +289,7 @@ sub readExcel {
 			return 0;
 		}
 
-		# read in excel file
+		# read in excel file/sheet completely, both formats utilize read handlers (row_handlerXLSX or cell_handler)
 		my $parser;
 		if ($File->{format_xlformat} =~ /^xlsx$/i) {
 			$logger->debug("open xlsx file $redoSubDir$filename ... ");
@@ -332,15 +325,39 @@ sub readExcel {
 			return 0;
 		}
 
-		# iterate rows
+		# check header row if format_header given
+		if ($File->{format_header}) {
+			if ($File->{format_headerColumns}) {
+				my $i = 0;
+				for (@{$File->{format_headerColumns}}) {
+					$logger->error("expected header '".$header[$i]."' not in column ".$_.", instead got:".$dataRows{$startRowHeader}{$_}) if $header[$i] ne $dataRows{$startRowHeader}{$_};
+					$i++;
+				}
+			} else {
+				for (my $i = 0; $i < @header; $i++) {
+					$logger->error("expected header '".$header[$i]."' not in column ".($i+1).", instead got:".$dataRows{$startRowHeader}{$i+1}) if $header[$i] ne $dataRows{$startRowHeader}{$i+1};
+				}
+			}
+		}
+		# now iterate data rows
 		my (@line,@previousline);
+		$logger->debug("startRow: $startRow, maxRow: $maxRow");
 LINE:
-		for my $lineno ($startRow+1 .. $maxRow) {
+		# $maxRow is being set when reading in the sheet
+		for my $lineno ($startRow .. $maxRow) {
 			@previousline = @line;
 			@line = undef;
 			# get @line from stored values
-			for (my $i = 0; $i < @header; $i++) {
-				$line[$i] = $dataRows{$lineno}{$header[$i]};
+			if ($File->{format_headerColumns}) {
+				my $i = 0;
+				for (@{$File->{format_headerColumns}}) {
+					$line[$i] = $dataRows{$lineno}{$_};
+					$i++;
+				}
+			} else {
+				for (my $i = 0; $i < @header; $i++) {
+					$line[$i] = $dataRows{$lineno}{$i+1};
+				}
 			}
 			readRow($process,\@line,\@previousline,\@header,\@targetheader,undef,$lineProcessing,$fieldProcessing,$thousandsep,$decimalsep,$lineno);
 		}
@@ -365,14 +382,14 @@ sub readXML {
 	# read format configuration
 	my (@header, @targetheader);
 	my $sep = $File->{format_sep};
-	if (!$sep) {
-		$logger->error("no separator set in ".Dumper($File));
-		return 0;
-	}
+	$sep = "\t" if !$sep;
 	$logger->error("no header defined") if !$File->{format_header};
 	@header = split $sep, $File->{format_header};
-	$logger->debug("header: @header");
-	@targetheader = @header;
+	@targetheader = split $sep, $File->{format_targetheader} if $File->{format_targetheader};
+	$Data::Dumper::Terse = 1;
+	$logger->debug("sep:".Data::Dumper::qquote($sep).",header:@header\ntargetheader:@targetheader");
+	$Data::Dumper::Terse = 0;
+	@targetheader = @header if !@targetheader; # if no specific targetheader defined use header instead
 
 	# read all files with same format
 	for my $filename (@filenames) {
