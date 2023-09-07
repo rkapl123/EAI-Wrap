@@ -2,9 +2,11 @@
 use strict; use warnings;
 use EAI::FTP; use Test::File; use Test::More; use Data::Dumper; use File::Spec; use Text::Glob qw( match_glob);
 
-my $author = eval "no warnings; getlogin eq 'rolan'";
-plan skip_all => "tests not automatic in non-author environment" if ($^O =~ /MSWin32/i and not $author);
-use Test::More tests => 13;
+if ($ENV{EAI_WRAP_AUTHORTEST}) {
+	plan tests => 13;
+} else {
+	plan skip_all => "tests not automatic in non-author environment";
+}
 require './setup.t';
 
 my $filecontent = "skipped line\nID1\tID2\tName\tNumber\n234234\t2\tFirstLast2\t123123.0\n543453\t1\tFirstLast1\t546123.0\n";
@@ -27,9 +29,6 @@ unless (my $return = eval $siteCONFIGFILE) {
 }
 
 my ($ftpHandle, $ftpHost);
-
-
-
 login({remoteHost => {Prod => "unknown", Test => "unknown"},maxConnectionTries => 2,FTPdebugLevel => 0,user => "unknown", pwd => "unknown"},{env => "Test"});
 ($ftpHandle, $ftpHost) = getHandle();
 ok(!defined($ftpHandle),"expected login failure");
@@ -39,20 +38,19 @@ login({remoteHost => {Prod => "127.0.0.1",Test => "127.0.0.1"},maxConnectionTrie
 ok(defined($ftpHandle) && $ftpHost eq "127.0.0.1","login success");
 setHandle($ftpHandle) or print "error: $@";
 
-
 # create an archive dir
 $ftpHandle->mkdir("Archive");
 $ftpHandle->mkdir("relativepath");
 
-putFile({remoteDir => "/relativepath", dontUseTempFile=> 1},{fileToWrite => "test.txt"});
+putFile({remoteDir => "/relativepath", dontUseTempFile=>1},{fileToWrite => "test.txt"});
 my @fileUploaded1 = match_glob ("test.txt", $ftpHandle->ls(".")) or die "unable to retrieve directory: ".$ftpHandle->message;
 ok($fileUploaded1[0] eq "test.txt","test.txt uploaded file relativepath");
 
-putFile({remoteDir => "/relativepath",dontMoveTempImmediately =>1},{fileToWrite => "test.txt"});
+putFile({remoteDir => "/relativepath", dontMoveTempImmediately=>1},{fileToWrite => "test.txt"});
 my @fileUploaded2 = match_glob ("temp.test.txt", $ftpHandle->ls(".")) or die "unable to retrieve directory: ".$ftpHandle->message;
 ok($fileUploaded2[0] eq "temp.test.txt","test.txt uploaded temp file relativepath");
 
-putFile({remoteDir => "/",dontMoveTempImmediately =>1},{fileToWrite => "test.txt"});
+putFile({remoteDir => "/",dontMoveTempImmediately=>1},{fileToWrite => "test.txt"});
 my @filesUploaded3 = match_glob ("temp.test.txt", $ftpHandle->ls(".")) or die "unable to retrieve directory: ".$ftpHandle->message;
 ok($filesUploaded3[0] eq "temp.test.txt","test.txt uploaded temp file");
 unlink "test.txt",

@@ -1,5 +1,5 @@
 # used for CONFIGURATION REFERENCE, fetches comments from %hashCheck in Common.pm and translates them to pod =items
-open (COMMONFILE, "<".'C:\dev\EAI\lib\EAI\Wrap\Common.pm');
+open (COMMONFILE, "<".'lib\EAI\Common.pm') or die ('can\'t open lib\EAI\Common.pm for reading');
 print "=head2 CONFIGURATION REFERENCE\n\n";
 while (<COMMONFILE>){
 	if (/my %hashCheck = \(/) {

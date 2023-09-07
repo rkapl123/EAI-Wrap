@@ -2,9 +2,11 @@
 use strict; use warnings;
 use EAI::DB; use Test::More; use Data::Dumper;
 
-my $author = eval "no warnings; getlogin eq 'rolan'";
-plan skip_all => "tests not automatic in non-author environment" if ($^O =~ /MSWin32/i and not $author);
-use Test::More tests => 16;
+if ($ENV{EAI_WRAP_AUTHORTEST}) {
+	plan tests => 16;
+} else {
+	plan skip_all => "tests not automatic in non-author environment";
+}
 require './setup.t';
 
 newDBH({database => "testDB", DSN => 'driver={SQL Server};Server=.;database=$DB->{database};TrustedConnection=Yes;'}, {});

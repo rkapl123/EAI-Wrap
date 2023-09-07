@@ -2,9 +2,11 @@
 use strict; use warnings;
 use EAI::FTP; use Test::More; use Test::File; use File::Spec; use Data::Dumper;
 
-my $author = eval "no warnings; getlogin eq 'rolan'";
-plan skip_all => "tests not automatic in non-author environment" if ($^O =~ /MSWin32/i and not $author);
-use Test::More tests => 13;
+if ($ENV{EAI_WRAP_AUTHORTEST}) {
+	plan tests => 13;
+} else {
+	plan skip_all => "tests not automatic in non-author environment";
+}
 require './setup.t';
 
 my $sshExecutable = 'C:/dev/EAI/putty/PLINK.EXE';
@@ -28,7 +30,6 @@ unless (my $return = eval $siteCONFIGFILE) {
 }
 
 my ($ftpHandle, $ftpHost);
-
 login({remoteHost => {Prod => "unknown", Test => "unknown"}, sshInstallationPath => $sshExecutable, maxConnectionTries => 2,privKey => "",FTPdebugLevel => 0,user => "", pwd => ""},{env => "Test"});
 ($ftpHandle, $ftpHost) = getHandle();
 ok(!defined($ftpHandle),"expected login failure");
@@ -42,21 +43,21 @@ setHandle($ftpHandle) or print "error: $@";
 $ftpHandle->mkdir("Archive");
 $ftpHandle->mkdir("relativepath");
 
-putFile({remoteDir => "/relativepath", dontUseTempFile=> 1},{fileToWrite => "test.txt"});
+putFile({remoteDir => "/relativepath", dontUseTempFile=>1},{fileToWrite => "test.txt"});
 my $fileUploaded1 = $ftpHandle->ls(".", wanted => qr/test\.txt/, names_only => 1) or die "unable to retrieve directory: ".$ftpHandle->error;
 ok($fileUploaded1->[0] eq "test.txt","test.txt uploaded file relativepath");
 
-putFile({remoteDir => "/relativepath",dontMoveTempImmediately =>1},{fileToWrite => "test.txt"});
+putFile({remoteDir => "/relativepath", dontMoveTempImmediately=>1},{fileToWrite => "test.txt"});
 my $fileUploaded2 = $ftpHandle->ls(".", wanted => qr/temp\.test\.txt/, names_only => 1) or die "unable to retrieve directory: ".$ftpHandle->error;
 ok($fileUploaded2->[0] eq "temp.test.txt","test.txt uploaded temp file relativepath");
 
 putFile({remoteDir => "/",dontMoveTempImmediately =>1},{fileToWrite => "test.txt"});
-my $fileUploaded3 = $ftpHandle->ls("/", wanted => qr/temp\.test\.txt/, names_only => 1) or die "unable to retrieve directory: ".$ftpHandle->error;
+my $fileUploaded3 = $ftpHandle->ls(".", wanted => qr/temp\.test\.txt/, names_only => 1) or die "unable to retrieve directory: ".$ftpHandle->error;
 ok($fileUploaded3->[0] eq "temp.test.txt","test.txt uploaded temp file");
 unlink "test.txt",
 
 moveTempFile({remoteDir => "."},{fileToWrite => "test.txt"});
-my $fileMoved = $ftpHandle->ls("", wanted => qr/^test\.txt$/, names_only => 1) or die "unable to retrieve directory: ".$ftpHandle->error;
+my $fileMoved = $ftpHandle->ls(".", wanted => qr/^test\.txt$/, names_only => 1) or die "unable to retrieve directory: ".$ftpHandle->error;
 ok($fileMoved->[0] eq "test.txt","test.txt renamed temp file");
 
 my @retrieved;
@@ -83,9 +84,9 @@ my $fileExisting2 = $ftpHandle->ls(".", wanted => qr/date_time\.test\.txt/, name
 ok(@$fileExisting2 == 0,"removeFilesOlderX removed file");
 
 # cleanup
-$ftpHandle->setcwd("..");
-$ftpHandle->rmdir("Archive");
-$ftpHandle->rmdir("relativepath");
+$ftpHandle->setcwd(undef);
+$ftpHandle->rmdir("Archive") or print "error: $@";
+$ftpHandle->rmdir("relativepath") or print "error: $@";
 unlink "test.txt";
 unlink "temp.test.txt";
 unlink glob "*.config";

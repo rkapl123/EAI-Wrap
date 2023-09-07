@@ -26,7 +26,7 @@ $process = {data => [{col1 => "val11",col2 => "val21",col3 => "val31"},{col1 => 
 writeExcel($File,$process);
 file_exists_ok("Testout.xlsx","Testout.xlsx was written");
 
-# write data to excel xlsx file
+# write data to excel xls file
 $expected_filecontent = "";
 $File = {format_xlformat => "xls", filename => "Testout.xls",columns => {1=>"col1",2=>"col2",3=>"col3"},};
 $process = {data => [{col1 => "val11",col2 => "val21",col3 => "val31"},{col1 => "val12",col2 => "val22",col3 => "val32"}]};
@@ -47,28 +47,28 @@ $expected_datastruct = [{"col 1" => "val 11",col2 => "val21",col3 => "val31"},{"
 readText($File,$process,["Testout.csv"]);
 is_deeply($process->{data},$expected_datastruct,"read in csv data is expected content");
 
-# read data from excel file
-$File =  {format_xlformat => "xlsx", format_skip => 1, format_worksheetID=>1, format_header => "col1\tcol2\tcol3",format_targetheader => "col1\tcol2\tcol3",filename => "Testout.xlsx",};
+# read data from excel xlsx file
+$File = {format_xlformat => "xlsx", format_worksheetID=>1, format_header => "col1\tcol2\tcol3",format_targetheader => "col1\tcol2\tcol3",filename => "Testout.xlsx",};
 $process = {data => []}; # need to init process structure with data key
 $expected_datastruct = [{col1 => "val11",col2 => "val21",col3 => "val31"},{col1 => "val12",col2 => "val22",col3 => "val32"}];
 readExcel($File,$process,["Testout.xlsx"]);
 is_deeply($process->{data},$expected_datastruct,"read in excel xlsx data is expected content");
 
-# read data from excel file
-$File =  {format_xlformat => "xls", format_skip => 1, format_worksheetID=>1, format_header => "col1\tcol2\tcol3",format_targetheader => "col1\tcol2\tcol3",filename => "Testout.xls",};
+# read data from excel xls file
+$File =  {format_xlformat => "xls", format_worksheetID=>1, format_header => "col1\tcol2\tcol3",format_targetheader => "col1\tcol2\tcol3",filename => "Testout.xls",};
 $process = {data => []}; # need to init process structure with data key
 $expected_datastruct = [{col1 => "val11",col2 => "val21",col3 => "val31"},{col1 => "val12",col2 => "val22",col3 => "val32"}];
 readExcel($File,$process,["Testout.xls"]);
 is_deeply($process->{data},$expected_datastruct,"read in excel xls data is expected content");
 
-# read data from excel file using format_headerColumns
-$File =  {format_xlformat => "xls", format_skip => 1, format_worksheetID=>1, format_headerColumns => [1,3], format_header => "col1\tcol3",format_targetheader => "col1\tcol3",filename => "Testout.xls",};
+# read data from excel xls file using format_headerColumns
+$File =  {format_xlformat => "xls", format_worksheetID=>1, format_headerColumns => [1,3], format_header => "col1\tcol3",format_targetheader => "col1\tcol3",filename => "Testout.xls",};
 $process = {data => []}; # need to init process structure with data key
 $expected_datastruct = [{col1 => "val11",col3 => "val31"},{col1 => "val12",col3 => "val32"}];
 readExcel($File,$process,["Testout.xls"]);
 is_deeply($process->{data},$expected_datastruct,"read in excel xls data is expected content");
 
-# read data from excel file using format_headerColumns
+# read data from excel xls file using format_headerColumns
 $File =  {format_xlformat => "xls", format_skip => 1, format_worksheetID=>1, format_headerColumns => [1,3], format_header => "col1\tcol2\tcol3",format_targetheader => "col1\tcol2\tcol3",filename => "Testout.xls",};
 $process = {data => []}; # need to init process structure with data key
 $expected_datastruct = []; # expect empty array returned due to error.
