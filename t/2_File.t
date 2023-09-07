@@ -100,8 +100,8 @@ is_deeply($process->{data},$expected_datastruct,"read in XML data is expected co
 
 unlink "Testout.txt";
 unlink "Testout.csv";
-unlink "Testout.xlsx";
-unlink "Testout.xls";
+#unlink "Testout.xlsx";
+#unlink "Testout.xls";
 unlink "Testout.xml";
 unlink glob "*.config";
 
