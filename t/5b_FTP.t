@@ -1,22 +1,26 @@
-# to use these testcases, activate a local FTP service and create $ENV{EAI_WRAP_CONFIG_PATH}."/Test/site.config with a user/pwd in the prefix ftp there.
+# to use these testcases, activate a local FTP service and create $ENV{EAI_WRAP_CONFIG_PATH}."/Test/site.config with a user/pwd in the prefix ftp there and set env variable EAI_WRAP_AUTHORTEST.
 use strict; use warnings;
-use EAI::FTP; use Test::File; use Test::More; use Data::Dumper; use File::Spec; use Text::Glob qw( match_glob);
+use EAI::FTP; use Test::File; use Test::More; use Data::Dumper; use File::Spec; use Text::Glob qw(match_glob);
 
 if ($ENV{EAI_WRAP_AUTHORTEST}) {
 	plan tests => 13;
 } else {
 	plan skip_all => "tests not automatic in non-author environment";
 }
-require './setup.t';
-
+chdir "./t";
 my $filecontent = "skipped line\nID1\tID2\tName\tNumber\n234234\t2\tFirstLast2\t123123.0\n543453\t1\tFirstLast1\t546123.0\n";
 open (FH,">test.txt");
 print FH $filecontent;
 close FH;
 
+open (LOGCONF, ">log.config");
+print LOGCONF "log4perl.rootLogger = ERROR, SCREEN\nlog4perl.appender.SCREEN=Log::Log4perl::Appender::Screen\nlog4perl.appender.SCREEN.layout = PatternLayout\nlog4perl.appender.SCREEN.layout.ConversionPattern = %d	%P	%p	%M-%L	%m%n\n";
+close LOGCONF;
+Log::Log4perl::init("log.config"); 
+
 my %config;
 my $siteCONFIGFILE;
-open (CONFIGFILE, "<../config/Test/site.config") or die("couldn't open config/Test/site.config: $@ $!, caller ".(caller(1))[3].", line ".(caller(1))[2]." in ".(caller(1))[1]);
+open (CONFIGFILE, "<$ENV{EAI_WRAP_CONFIG_PATH}/Test/site.config") or die("couldn't open $ENV{EAI_WRAP_CONFIG_PATH}/Test/site.config");
 {
 	local $/=undef;
 	$siteCONFIGFILE = <CONFIGFILE>;
@@ -88,6 +92,5 @@ $ftpHandle->rmdir("Archive");
 $ftpHandle->rmdir("relativepath");
 unlink "test.txt";
 unlink "temp.test.txt";
-unlink glob "*.config";
-
+unlink "log.config";
 done_testing();

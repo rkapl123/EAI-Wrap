@@ -2,7 +2,8 @@ use strict; use warnings; use Data::Dumper;
 use EAI::Common; use Test::More; use Test::File; use File::Spec;
 use Test::More tests => 16;
 
-require './setup.t';
+require './t/setup.pl';
+chdir "./t";
 our %config = (sensitive => {db => {user => "sensitiveDBuserInfo", pwd => "sensitiveDBPwdInfo"},ftp => {user => {Test => "sensitiveFTPuserInfo", Prod => ""}, pwd => {Test => "sensitiveFTPPwdInfo", Prod => ""}}});
 our %execute = (env => "Test");
 
@@ -48,6 +49,7 @@ is(checkStartingCond(\%common),0,"no starting condition exit");
 $common{task}{skipHolidays} = "TEST";
 is(checkStartingCond(\%common),1,"starting condition exit because holiday");
 
-unlink glob "*.config";
-
+unlink "config/site.config";
+unlink "config/log.config";
+rmdir "config";
 done_testing();

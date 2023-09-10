@@ -1,14 +1,12 @@
-sub INIT {
-	require './setup.t';
-}
+sub INIT {require './t/setup.pl';}
 use strict; use warnings;
-use EAI::Wrap; use Data::Dumper; use Archive::Zip qw( :ERROR_CODES :CONSTANTS );
+use EAI::Wrap; use Data::Dumper; use Archive::Zip qw( :ERROR_CODES :CONSTANTS ); use File::Copy 'move';
 use Test::More; use Test::File; use File::Spec; use Test::Timer;
-use Test::More tests => 33;
+use Test::More tests => 32;
+chdir "./t";
 
 setupEAIWrap();
 is($execute{scriptname},"3a_Wrap.t","scriptname set by INIT");
-
 my $zip = Archive::Zip->new();
 my $string_member = $zip->addString('testcontent', 'testContent.txt' );
 $string_member->desiredCompressionMethod( COMPRESSION_DEFLATED );
@@ -74,15 +72,15 @@ is_deeply($execute{alreadyMovedOrDeleted},{"test_2.csv"=>1},"deleteFiles \$execu
 
 delete $execute{alreadyMovedOrDeleted};
 $common{task}{redoFile} = 1; # set redoFile again to delete files in redo folder
-deleteFiles(["test.txt", "test_1.csv", "test_2.csv"]);
-file_not_exists_ok("test.txt","deleteFiles test.txt not here");
+deleteFiles(["test_1.csv", "test_2.csv"]);
 file_not_exists_ok("test_1.csv","deleteFiles test_1.csv not here");
 file_not_exists_ok("test_2.csv","deleteFiles test_2.csv not here");
-is_deeply($execute{alreadyMovedOrDeleted},{"test_1.csv"=>1,"test_2.csv"=>1,"test.txt"=>1},"deleteFiles \$execute{alreadyMovedOrDeleted} test_1.csv test_2.csv test.txt");
+is_deeply($execute{alreadyMovedOrDeleted},{"test_1.csv"=>1,"test_2.csv"=>1},"deleteFiles \$execute{alreadyMovedOrDeleted} test_1.csv test_2.csv");
 
-putFileInLocalDir({File => {localFilesystemPath => "localDir", filename => "site.config"}});
-file_not_exists_ok("site.config","putFileInLocalDir site.config not here");
-file_exists_ok("localDir/site.config","putFileInLocalDir site.config moved");
+move "redo/test.txt", ".";
+putFileInLocalDir({File => {localFilesystemPath => "localDir", filename => "test.txt"}});
+file_not_exists_ok("test.txt","putFileInLocalDir test.txt not here");
+file_exists_ok("localDir/test.txt","putFileInLocalDir test.txt moved");
 
 time_ok( sub { processingPause(1); }, 1, 'processingPause one second');
 
@@ -97,10 +95,12 @@ is_deeply($process{archivefilenames}, ["test.zip"], "extractArchives \$process{a
 is_deeply($execute{retrievedFiles}, [], "extractArchives \$execute{retrievedFiles} empty");
 
 unlink "test.zip";
+unlink "test.txt";
 unlink "testContent.txt";
-unlink glob "*.config";
-unlink "localDir/site.config";
+unlink "localDir/test.txt";
 unlink "History/test_DefinedTimestamp.txt";
 rmdir "redo"; rmdir "History"; rmdir "localDir";
-
+unlink "config/site.config";
+unlink "config/log.config";
+rmdir "config";
 done_testing();

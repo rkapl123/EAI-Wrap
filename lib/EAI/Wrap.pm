@@ -537,7 +537,7 @@ sub writeFileFromDB ($) {
 	};
 	# pass column information from database, if not explicitly set
 	$File->{columns} = $DB->{columnnames} if !$File->{columns};
-	$logger->warn("no data retrieved") if ($process->{data} and @{$process->{data}} == 0);
+	$logger->warn("no data retrieved from database for file ".$File->{filename}.", query: ".$DB->{query}) if ($process->{data} and @{$process->{data}} == 0);
 	# prepare for all configs, where postReadProcessing is defined
 	if ($DB->{postReadProcessing}) {
 		eval $DB->{postReadProcessing};
@@ -965,7 +965,7 @@ list of hashes defining specific load processes within the task script. Each has
 
 In the above mentioned hashes can be five categories (sub-hashes): L<DB|/DB>, L<File|/File>, L<FTP|/FTP>, L<process|/process> and L<task|/task>. These allow further parameters to be set for the respective parts of EAI::Wrap (L<EAI::DB>, L<EAI::File> and L<EAI::FTP>), process parameters and task parameters. The parameters are described in detail in section L<CONFIGURATION REFERENCE|/CONFIGURATION REFERENCE>.
 
-The L<process|/process> category is on the one hand used to pass information within each process (data, additionalLookupData, filenames, hadErrors or commandline parameters starting with interactive), on the other hand for additional configurations not suitable for L<DB|/DB>, L<File|/File> or L<FTP|/FTP> (e.g. L<uploadCMD|/uploadCMD>). The L<task|/task> category contains parameters used on the task script level and is therefore only allowed in %config and %common. It contains parameters for skipping, retrying and redoing the whole task script.
+The L<process|/process> category is on the one hand used to pass information within each process (data, additionalLookupData, filenames, hadErrors or commandline parameters starting with interactive), on the other hand for additional configurations not suitable for L<DB|/DB>, L<File|/File> or L<FTP|/FTP> (e.g. L<uploadCMD|/uploadCMD>). The L<task|/task> category contains parameters used on the task script level and is therefore only allowed in C<%config> and C<%common>. It contains parameters for skipping, retrying and redoing the whole task script.
 
 The settings in DB, File, FTP and task are "merge" inherited in a cascading manner (i.e. missing parameters are merged, parameters already set below are not overwritten):
 
@@ -1164,7 +1164,7 @@ folders where files for redo are contained, lookup key as checkLookup, default i
 
 =item sensitive
 
-hash lookup for sensitive access information in DB and FTP (lookup keys are set with DB{prefix} or FTP{prefix}), may also be placed outside of site.config; all sensitive keys can also be environment lookups, e.g. hostkey=>{Test => "", Prod => ""} to allow for environment specific setting
+hash lookup for sensitive access information in DB and FTP (lookup keys are set with DB{prefix} or FTP{prefix}), may also be placed outside of site.config; all sensitive keys can also be environment lookups, e.g. hostkey=>{Test=>"", Prod=>""} to allow for environment specific setting
 
 =item smtpServer
 

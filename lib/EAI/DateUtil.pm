@@ -1,4 +1,4 @@
-package EAI::DateUtil;
+package EAI::DateUtil 0.1;
 
 use strict;
 use Time::Local; use Time::localtime; use Exporter; use POSIX qw(mktime);
@@ -235,7 +235,7 @@ sub convertDateToMMM ($$$) {
 	return sprintf("%02d-%03s-%04d",$day, $months[$mon-1], $year);
 }
 
-sub convertToDDMMYYYY ($$$) {
+sub convertToDDMMYYYY ($) {
 	my ($y,$m,$d) = $_[0] =~ /(.{4})(..)(..)/;
 	return "$d.$m.$y";
 }

@@ -10,7 +10,7 @@ putty
 config/Test
 fetchParamDescriptions.pl
 compare.WinMerge
-ETL-Wrap-0.1
+EAI-Wrap-0.1
 MYMETA
 podpreview.url
 MANIFEST.SKIP

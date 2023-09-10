@@ -1,4 +1,4 @@
-package EAI::File;
+package EAI::File 0.1;
 
 use strict;
 use Text::CSV; use Data::XLSX::Parser; use Spreadsheet::ParseExcel; use Spreadsheet::WriteExcel; use Excel::Writer::XLSX; use Data::Dumper; use XML::LibXML; use XML::LibXML::Debugging;
@@ -151,6 +151,7 @@ LINE:
 }
 
 # global variables for excel parsing
+my $startRowHeader; # header row for check (if format_header is defined), needed globally to avoid accidental date formatting
 my %dateColumn; # lookup for columns with date values (key: excel column, numeric, starting with 1, value: 1 (boolean))
 my %headerColumn; # lookup for header (key: excel column, numeric, starting with 1, actual column of header field, value: 1 (boolean))
 my $worksheet; # worksheet to be read, old format (numeric, starting with 1)
@@ -173,8 +174,9 @@ sub cell_handler {
 		if (($stopOnEmptyValueColumn eq $col && !$cell) || $stoppedOnEmptyValue) {
 			$logger->warn("empty cell in row $row / column $col and stopOnEmptyValueColumn is set to $col, skipping from here now") if !$stoppedOnEmptyValue; # pass warning only once
 			$stoppedOnEmptyValue = 1;
-		} else { # data row
-			if ($dateColumn{$col}) {
+		} else {
+			$logger->trace("Row $row, Column $col:\n".Dumper($cell)) if $logger->is_trace;
+			if ($dateColumn{$col} and $row != $startRowHeader) {
 				# with date values need value(), otherwise (unformatted) a julian date (decimal representing date and time) is returned
 				# parse from US date format into YYYYMMDD, time parts are still ignored!
 				if ($cell) {
@@ -206,9 +208,9 @@ sub row_handlerXLSX {
 			if (($stopOnEmptyValueColumn eq $col && !$value) || $stoppedOnEmptyValue) {
 				$logger->warn("empty cell in row $row / column $col and stopOnEmptyValueColumn is set to $col, skipping from here now") if !$stoppedOnEmptyValue; # pass warning only once
 				$stoppedOnEmptyValue = 1;
-			} else { # data row
+			} else {
 				$logger->trace("Row $row, Column $col:\n".Dumper($cellDetail)) if $logger->is_trace;
-				if ($dateColumn{$col}) {
+				if ($dateColumn{$col} and $row != $startRowHeader) {
 					# date fields are converted from epoch format !
 					$dataRows{$row}{$col} = convertEpochToYYYYMMDD($value);
 				} else {
@@ -274,7 +276,7 @@ sub readExcel {
 	# read all files with same format
 	for my $filename (@filenames) {
 		my $startRow = 1; # starting data row
-		my $startRowHeader = 1; # starting header row for check (if format_header is defined)
+		$startRowHeader = 1; # starting header row for check (if format_header is defined)
 		$startRow += $File->{format_skip} if $File->{format_skip}; # skip additional rows for data begin, row semantics is 1 based
 		$startRowHeader += $File->{format_headerskip} if $File->{format_headerskip}; # skip additional rows for header row, row semantics is 1 based
 		$startRow = $startRowHeader + 1 if !$File->{format_skip} and $File->{format_header}; # set to header following row if format_skip not defined and format_header given
@@ -327,6 +329,7 @@ sub readExcel {
 
 		# check header row if format_header given
 		if ($File->{format_header}) {
+			$logger->info("checking header info in row $startRowHeader");
 			if ($File->{format_headerColumns}) {
 				my $i = 0;
 				for (@{$File->{format_headerColumns}}) {
@@ -753,14 +756,6 @@ reads the defined excel file with specified parameters into array of hashes (DB 
  $File      .. hash ref for File specific configuration
  $process   .. hash ref for process specific configuration and returned data (hashkey "data" -> above mentioned array of hashes)
  $filenames .. array of file names, if explizit (given in case of mget and unpacked zip archives).
-
-=item cell_handler
-
-callback event handler for readExcel (xls format)
-
-=item row_handlerXLSX
-
-callback event handler for readExcel (xlsx format)
 
 =item readXML
 

@@ -1,4 +1,4 @@
-package EAI::DB;
+package EAI::DB 0.1;
 
 use strict;
 use DBI qw(:sql_types); use DBD::ODBC; use Data::Dumper; use Log::Log4perl qw(get_logger); use Exporter;
