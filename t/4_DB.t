@@ -10,6 +10,7 @@ if ($ENV{EAI_WRAP_AUTHORTEST}) {
 require './t/setup.pl';
 chdir "./t";
 newDBH({database => "testDB", DSN => 'driver={SQL Server};Server=.;database=$DB->{database};TrustedConnection=Yes;'}, {});
+my ($dbHandle, $DSN) = getConn();
 doInDB({doString => "DROP TABLE [dbo].[theTestTable];"});
 my $createStmt = "CREATE TABLE [dbo].[theTestTable]([selDate] [datetime] NOT NULL,[ID0] [varchar](4) NOT NULL,[ID1] [bigint] NOT NULL,[ID2] [char](3) NOT NULL,[Number] [int] NOT NULL, [Amount] [decimal](28, 2) NOT NULL, CONSTRAINT [PK_theTestTable] PRIMARY KEY CLUSTERED (selDate ASC)) ON [PRIMARY]";
 # 1 successful creation of table with doInDB
@@ -88,6 +89,9 @@ rollback();
 $expected_result=[{Number=>1,ID0=>'ABCD',selDate=>'2019-06-19 00:00:00.000',Amount=>'65432.10',ID1=>'9999',ID2=>'XYZ'}];
 readFromDB({query => "select * from [dbo].[theTestTable]", columnnames=>\@columnnames}, \@retvals);
 is_deeply(\@retvals,$expected_result,"transaction rollback");
+
+# 14 set connection
+setConn($dbHandle, $DSN);
 
 # cleanup
 doInDB({doString => "DROP TABLE [dbo].[theTestTable]"});

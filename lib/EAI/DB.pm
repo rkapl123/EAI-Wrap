@@ -516,7 +516,7 @@ sub updateInDB ($$) {
 }
 
 # set handle with externally created DBD::ODBC connection (if EAI::DB::newDBH capabilities are not sufficient)
-sub setConn ($) {
+sub setConn ($;$) {
 	my ($handle,$setDSN) = shift;
 	my $logger = get_logger();
 	eval {

@@ -2,3 +2,5 @@
 	- original version
 0.02  Mon Sep 11 18:00:00 2023
 	- fixed author test 3b_Wrap_Integration.t for automated tests, enhanced 2_File.t with excel format_skip (+ improved logging)
+0.03  
+	- completed getConn/setConn and getHandle/setHandle,

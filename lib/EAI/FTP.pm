@@ -515,7 +515,7 @@ sub login ($$) {
 }
 
 # set handle with externally created Net::FTP or Net::SFTP::Foreign handle (if EAI::FTP::login capabilities are not sufficient)
-sub setHandle ($) {
+sub setHandle ($;$) {
 	my ($handle,$rhost) = @_;
 	my $logger = get_logger();
 	eval {
