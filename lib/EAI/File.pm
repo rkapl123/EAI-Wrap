@@ -1,4 +1,4 @@
-package EAI::File 0.1;
+package EAI::File 0.2;
 
 use strict;
 use Text::CSV; use Data::XLSX::Parser; use Spreadsheet::ParseExcel; use Spreadsheet::WriteExcel; use Excel::Writer::XLSX; use Data::Dumper; use XML::LibXML; use XML::LibXML::Debugging;

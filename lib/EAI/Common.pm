@@ -1,10 +1,10 @@
-package EAI::Common 0.1;
+package EAI::Common 0.2;
 
 use strict;
 use Exporter; use Log::Log4perl qw(get_logger); use EAI::DateUtil; use Data::Dumper; use Getopt::Long qw(:config no_ignore_case); use Scalar::Util qw(looks_like_number);
 # to make use of colored logs with Log::Log4perl::Appender::ScreenColoredLevels on windows we have to use that (special "use" to make this optional on non-win environments)
 BEGIN {
-	if ($^O =~ /MSWin/) {require Win32::Console::ANSI; Win32::Console::ANSI->import();} 
+	if ($^O =~ /MSWin/) {require Win32::Console::ANSI; Win32::Console::ANSI->import();}
 }
 
 our @ISA = qw(Exporter);

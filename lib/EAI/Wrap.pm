@@ -1,4 +1,4 @@
-package EAI::Wrap 0.1;
+package EAI::Wrap 0.2;
 
 use strict;
 use Time::Local; use Time::localtime; use MIME::Lite; use Data::Dumper; use Module::Refresh; use Exporter; use File::Copy; use Cwd; use Archive::Extract;
@@ -1164,7 +1164,7 @@ folders where files for redo are contained, lookup key as checkLookup, default i
 
 =item sensitive
 
-hash lookup for sensitive access information in DB and FTP (lookup keys are set with DB{prefix} or FTP{prefix}), may also be placed outside of site.config; all sensitive keys can also be environment lookups, e.g. hostkey=>{Test=>"", Prod=>""} to allow for environment specific setting
+hash lookup for sensitive access information in DB and FTP (lookup keys are set with DB{prefix} or FTP{prefix}), may also be placed outside of site.config; all sensitive keys can also be environment lookups, e.g. hostkey=>{Test => "", Prod => ""} to allow for environment specific setting
 
 =item smtpServer
 

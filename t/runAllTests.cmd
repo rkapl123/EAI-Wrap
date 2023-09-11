@@ -1,3 +1,4 @@
+set EAI_WRAP_AUTHORTEST=1
 cd C:\dev\EAI
 perl t/1_DateUtil.t
 perl t/2_File.t

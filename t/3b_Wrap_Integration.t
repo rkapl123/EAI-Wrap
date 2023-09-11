@@ -1,11 +1,14 @@
+sub INIT {
+	use Test::More;
+	if ($ENV{EAI_WRAP_AUTHORTEST}) {
+		plan tests => 11;
+	} else {
+		plan skip_all => "tests not automatic in non-author environment";
+	}
+}
 # to use these testcases, activate a local SFTP service and create $ENV{EAI_WRAP_CONFIG_PATH}."/Test/site.config with a user/pwd in the prefix sftp there and set env variable EAI_WRAP_AUTHORTEST.
 use strict; use warnings;
-use EAI::Wrap; use Archive::Zip qw( :ERROR_CODES :CONSTANTS ); use Test::More; use Test::File; use File::Spec; use Test::Timer; use Data::Dumper;
-if ($ENV{EAI_WRAP_AUTHORTEST}) {
-	plan tests => 11;
-} else {
-	plan skip_all => "tests not automatic in non-author environment";
-}
+use EAI::Wrap; use Archive::Zip qw( :ERROR_CODES :CONSTANTS ); use Test::File; use File::Spec; use Test::Timer; use Data::Dumper;
 chdir "./t";
 
 # set up EAI::Wrap definitions

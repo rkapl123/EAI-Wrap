@@ -1,4 +1,4 @@
-package EAI::DateUtil 0.1;
+package EAI::DateUtil 0.2;
 
 use strict;
 use Time::Local; use Time::localtime; use Exporter; use POSIX qw(mktime);

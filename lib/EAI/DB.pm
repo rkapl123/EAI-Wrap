@@ -1,4 +1,4 @@
-package EAI::DB 0.1;
+package EAI::DB 0.2;
 
 use strict;
 use DBI qw(:sql_types); use DBD::ODBC; use Data::Dumper; use Log::Log4perl qw(get_logger); use Exporter;
@@ -236,7 +236,7 @@ sub storeInDB ($$) {
 
 				# iterate table fields, check data by type and format accordingly
 				for (my $dbCol=0; $dbCol < scalar(@{columns}); $dbCol++) {
-					$dataArray[$tgtCol] = $data->[$i]{$columns[$dbCol]}; # zuerst mit den rohdaten befüllen
+					$dataArray[$tgtCol] = $data->[$i]{$columns[$dbCol]}; # first fill with raw data
 					$dataArray[$tgtCol] = $addID->{$columns[$dbCol]} if $IDName{$columns[$dbCol]}; # if given: add constant ID-field value to all data rows for ID
 					my $datatype = $coldefs->{$columns[$dbCol]}{"TYPE_NAME"}; # type from DB dictionary
 					my $datasize = $coldefs->{$columns[$dbCol]}{"COLUMN_SIZE"}; # size from DB dictionary
