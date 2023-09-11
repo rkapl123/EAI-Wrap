@@ -4,15 +4,10 @@ use strict;
 use DBI qw(:sql_types); use DBD::ODBC; use Data::Dumper; use Log::Log4perl qw(get_logger); use Exporter;
 
 our @ISA = qw(Exporter);
-our @EXPORT = qw(newDBH beginWork commit rollback readFromDB readFromDBHash doInDB storeInDB deleteFromDB updateInDB);
+our @EXPORT = qw(newDBH beginWork commit rollback readFromDB readFromDBHash doInDB storeInDB deleteFromDB updateInDB getConn setConn);
 
 my $dbh; # module static DBI handle, will be dynamic when using OO-Style here
 my $DSN; # module static DSN string, will be dynamic when using OO-Style here
-
-# used to get the raw db handler, mainly for testability
-sub getConn {
-	return ($dbh, $DSN);
-}
 
 # create a new handle for a database connection
 sub newDBH ($$) {
@@ -519,6 +514,29 @@ sub updateInDB ($$) {
 		return 1;
 	}
 }
+
+# set handle with externally created DBD::ODBC connection (if EAI::DB::newDBH capabilities are not sufficient)
+sub setConn ($) {
+	my ($handle,$setDSN) = shift;
+	my $logger = get_logger();
+	eval {
+		die "no DBD::ODBC handle passed to setHandle, argument is '".(defined($handle) ? ref($handle) : "undefined")."'" unless $handle && blessed $handle && $handle->isa('DBD::ODBC') ;
+		$dbh = $handle;
+		$DSN = $setDSN;
+	};
+	if ($@) {
+		$logger->error($@);
+		return 0;
+	} else {
+		return 1;
+	}
+}
+
+# used to get the raw db handler, mainly for testability
+sub getConn {
+	return ($dbh, $DSN);
+}
+
 1;
 __END__
 
@@ -540,6 +558,8 @@ EAI::DB - Database wrapper functions (for DBI / DBD::ODBC)
  storeInDB ($DB, $data)
  deleteFromDB ($DB, $data)
  updateInDB ($DB, $data)
+ setConn ($handle, $DSN)
+ getConn
 
 =head1 DESCRIPTION
 
@@ -548,10 +568,6 @@ EAI::DB contains all database related API-calls. This is for creating a database
 =head2 API
 
 =over
-
-=item getConn
-
-returns the DBI handler and the DSN string to allow direct commands with the handler
 
 =item newDBH
 
@@ -669,6 +685,17 @@ update data in database
  $DB->{tableName} .. table where data should be updated
  $DB->{keycol} .. a field name or a WHERE clause (e.g. primID1 = ? AND primID2 = ?) to find data that should be updated. A contained "?" specifies a WHERE clause that is simply used for a prepared statement.
  returns 0 on error, 1 if OK
+
+=item setConn
+
+set handle with externally created DBD::ODBC connection in case newDBH capabilities are not sufficient
+
+ $handle .. ref to handle
+ $setDSN .. DSN used in handle ((used for calls to newDBH)
+ 
+=item getConn
+
+returns the DBI handler and the DSN string to allow direct commands with the handler
 
 =back
 

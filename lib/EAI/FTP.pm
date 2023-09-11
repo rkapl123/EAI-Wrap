@@ -11,7 +11,7 @@ BEGIN {
 }
 
 our @ISA = qw(Exporter);
-our @EXPORT = qw(removeFilesOlderX fetchFiles putFile moveTempFile archiveFiles removeFiles login setHandle getHandle);
+our @EXPORT = qw(removeFilesOlderX fetchFiles putFile moveTempFile archiveFiles removeFiles login getHandle setHandle);
 
 my $ftp; # module static SFTP handle, will be dynamic when using OO-Style here
 my $RemoteHost; # module static RemoteHost string, will be dynamic when using OO-Style here
@@ -514,18 +514,14 @@ sub login ($$) {
 	return 1;
 }
 
-# used to get the raw ftp handler, mainly for testability
-sub getHandle {
-	return ($ftp, $RemoteHost);
-}
-
 # set handle with externally created Net::FTP or Net::SFTP::Foreign handle (if EAI::FTP::login capabilities are not sufficient)
 sub setHandle ($) {
-	my $handle = shift;
+	my ($handle,$rhost) = @_;
 	my $logger = get_logger();
 	eval {
 		die "neither Net::SFTP::Foreign nor Net::FTP handle passed to setHandle, argument is '".(defined($handle) ? ref($handle) : "undefined")."'" unless $handle && blessed $handle && ($handle->isa('Net::SFTP::Foreign') or $handle->isa('Net::FTP')) ;
 		$ftp = $handle;
+		$RemoteHost = $rhost;
 	};
 	if ($@) {
 		$logger->error($@);
@@ -534,13 +530,18 @@ sub setHandle ($) {
 		return 1;
 	}
 }
+
+# used to get the raw ftp handler, mainly for testability
+sub getHandle {
+	return ($ftp, $RemoteHost);
+}
 1;
 
 __END__
 
 =head1 NAME
 
-EAI::FTP - wrapper for Net::SFTP::Foreign
+EAI::FTP - wrapper for Net::SFTP::Foreign and Net::FTP
 
 =head1 SYNOPSIS
 
@@ -550,7 +551,8 @@ EAI::FTP - wrapper for Net::SFTP::Foreign
  moveTempFile ($FTP,$param)
  archiveFiles ($FTP,$param)
  login ($FTP,$execute)
- setHandle ($handle)
+ setHandle ($handle,$remoteHost)
+ getHandle
 
 =head1 DESCRIPTION
 
@@ -559,10 +561,6 @@ EAI::FTP contains all (secure) FTP related API-calls. This is for logging in to 
 =head2 API
 
 =over
-
-=item getConn
-
-returns the net-sftp-foreign ftp-handler and the RemoteHost string to allow direct commands with the handler
 
 =item removeFilesOlderX
 
@@ -657,11 +655,11 @@ log in to FTP server, stores the handle of the ftp connection
  $FTP->{user} .. for setting user directly
  $FTP->{pwd} .. for setting password directly
  $FTP->{dontUseQuoteSystemForPwd} .. for windows, a special quoting is used for passing passwords to Net::SFTP::Foreign that contain [()"<>& . This flag can be used to disable this quoting.
- $FTP->{FTPdebugLevel} .. debug ftp: 0 or ~(1|2|4|8|16|1024|2048), loglevel is automatically set to debug for module EAI::FTP for FTPdebugLevel > 0
+ $FTP->{FTPdebugLevel} .. debug sftp:  0||~(1|2|4|8|16|1024|2048) for Net::SFTP:Foreign or 0||1 for Net::FTP, loglevel automatically set to debug for module EAI::FTP if FTPdebugLevel > 0
  $FTP->{hostkey} .. hostkey to present to the server for Net::SFTP::Foreign, either directly (insecure -> visible) or via sensitive lookup
  $FTP->{privKey} .. sftp key file location for Net::SFTP::Foreign, either directly (insecure -> visible) or via sensitive lookup
- $FTP->{port} .. ftp/sftp port (leave empty for default ports 22)
- $FTP->{SFTP} .. to explicitly use SFTP, if not given SFTP will be derived from existence of privKey or hostkey
+ $FTP->{port} .. ftp/sftp port (leave empty for default ports 22 or 21)
+ $FTP->{SFTP} .. to explicitly use SFTP, if not given SFTP will be derived from existence of privKey or hostkey. If neither exists, an FTP connection will be opened.
  $execute .. ref to hash with execution environment
  $execute->{env} .. current environment (Prod, Test, Dev...)
 
@@ -669,9 +667,14 @@ returns 1 if login was successful, 0 on error
 
 =item setHandle
 
-sets externally created Net::SFTP:Foreign handle to be further used by EAI::FTP
+sets externally created Net::SFTP:Foreign or Net::FTP handle to be further used by EAI::FTP. Additionally the RemoteHost used in the handle can be passed (used for calls to login)
 
- $handle .. ref to Net::SFTP:Foreign handle
+ $handle .. ref to handle
+ $remoteHost .. remote Host
+
+=item getHandle
+
+returns the net-sftp-foreign/ftp handler and the RemoteHost string to allow direct commands with the handler
 
 =back
 

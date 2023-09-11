@@ -277,9 +277,18 @@ sub readExcel {
 	for my $filename (@filenames) {
 		my $startRow = 1; # starting data row
 		$startRowHeader = 1; # starting header row for check (if format_header is defined)
-		$startRow += $File->{format_skip} if $File->{format_skip}; # skip additional rows for data begin, row semantics is 1 based
-		$startRowHeader += $File->{format_headerskip} if $File->{format_headerskip}; # skip additional rows for header row, row semantics is 1 based
-		$startRow = $startRowHeader + 1 if !$File->{format_skip} and $File->{format_header}; # set to header following row if format_skip not defined and format_header given
+		if ($File->{format_skip}) {
+			$logger->debug("skipping ".$File->{format_skip}." rows for data begin"); 
+			$startRow += $File->{format_skip}; # skip additional rows for data begin, row semantics is 1 based
+		}
+		if ($File->{format_headerskip}) {
+			$logger->debug("skipping ".$File->{format_headerskip}." rows for header row (1)"); 
+			$startRowHeader += $File->{format_headerskip}; # skip additional rows for header row, row semantics is 1 based
+		}
+		if (!$File->{format_skip} and $File->{format_header}) {
+			$logger->debug("setting data begin to \$startRowHeader ($startRowHeader) + 1 as format_header given and no format_skip found"); 
+			$startRow = $startRowHeader + 1; # set to header following row if format_skip not defined and format_header given
+		}
 		# reset module global variables
 		%dataRows = undef;
 		$maxRow = 1;
@@ -344,7 +353,7 @@ sub readExcel {
 		}
 		# now iterate data rows
 		my (@line,@previousline);
-		$logger->debug("startRow: $startRow, maxRow: $maxRow");
+		$logger->debug("(data) start row: $startRow, (data) end row: $maxRow");
 LINE:
 		# $maxRow is being set when reading in the sheet
 		for my $lineno ($startRow .. $maxRow) {

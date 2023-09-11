@@ -589,7 +589,7 @@ EAI::Common - Common parts for the EAI::Wrap package
  %config .. hash for global config (set in $EAI_WRAP_CONFIG_PATH/site.config, amended with $EAI_WRAP_CONFIG_PATH/additional/*.config)
  %common .. common load configs for the task script
  @loads .. list of hashes defining specific load processes
- %execute .. hash of parameters for current running task script (having one or multiple loads)
+ %execute .. hash of parameters for current running task script
 
  readConfigFile
  getSensInfo
@@ -628,7 +628,7 @@ setupConfigMerge creates cascading inheritance of config/DB/File/FTP/process/tas
 
  %config <-- config options from command line
  - is merged into -->
- %common (common task parameters defined in script)
+ %common (common task parameters defined in script) <-- DB, FTP, File, task and process options from command line
  - is merged into -->
  $loads[] <-- DB, FTP, File and process options from command line
 

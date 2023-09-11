@@ -27,10 +27,10 @@ $process = {data => [{col1 => "val11",col2 => "val21",col3 => "val31"},{col1 => 
 writeExcel($File,$process);
 file_exists_ok("Testout.xlsx","Testout.xlsx was written");
 
-# 4 write data to excel xls file
+# 4 write data to excel xls file, data begins one line below header
 $expected_filecontent = "";
 $File = {format_xlformat => "xls", filename => "Testout.xls",columns => {1=>"col1",2=>"col2",3=>"col3"},};
-$process = {data => [{col1 => "val11",col2 => "val21",col3 => "val31"},{col1 => "val12",col2 => "val22",col3 => "val32"}]};
+$process = {data => [{col1 => "",col2 => "",col3 => ""},{col1 => "val11",col2 => "val21",col3 => "val31"},{col1 => "val12",col2 => "val22",col3 => "val32"}]};
 writeExcel($File,$process);
 file_exists_ok("Testout.xls","Testout.xls was written");
 
@@ -55,15 +55,15 @@ $expected_datastruct = [{col1 => "val11",col2 => "val21",col3 => "val31"},{col1 
 readExcel($File,$process,["Testout.xlsx"]);
 is_deeply($process->{data},$expected_datastruct,"read in excel xlsx data is expected content");
 
-# 8 read data from excel xls file
-$File =  {format_xlformat => "xls", format_worksheetID=>1, format_header => "col1\tcol2\tcol3",format_targetheader => "col1\tcol2\tcol3",filename => "Testout.xls",};
+# 8 read data from excel xls file, data begins one line below header (format_skip starts from first row, existence of header is not regarded here)
+$File =  {format_xlformat => "xls", format_worksheetID=>1, format_skip=>2, format_header => "col1\tcol2\tcol3",format_targetheader => "col1\tcol2\tcol3",filename => "Testout.xls",};
 $process = {data => []}; # need to init process structure with data key
 $expected_datastruct = [{col1 => "val11",col2 => "val21",col3 => "val31"},{col1 => "val12",col2 => "val22",col3 => "val32"}];
 readExcel($File,$process,["Testout.xls"]);
 is_deeply($process->{data},$expected_datastruct,"read in excel xls data is expected content");
 
 # 9 read data from excel xls file using format_headerColumns
-$File =  {format_xlformat => "xls", format_worksheetID=>1, format_headerColumns => [1,3], format_header => "col1\tcol3",format_targetheader => "col1\tcol3",filename => "Testout.xls",};
+$File =  {format_xlformat => "xls", format_worksheetID=>1, format_skip=>2, format_headerColumns => [1,3], format_header => "col1\tcol3",format_targetheader => "col1\tcol3",filename => "Testout.xls",};
 $process = {data => []}; # need to init process structure with data key
 $expected_datastruct = [{col1 => "val11",col3 => "val31"},{col1 => "val12",col3 => "val32"}];
 readExcel($File,$process,["Testout.xls"]);
