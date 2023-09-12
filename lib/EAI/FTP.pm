@@ -1,4 +1,4 @@
-package EAI::FTP 0.2;
+package EAI::FTP 0.3;
 
 use strict;
 use Net::SFTP::Foreign; use Net::SFTP::Foreign::Constants qw( SFTP_ERR_LOCAL_UTIME_FAILED ); use Net::FTP; use Text::Glob qw( match_glob);

@@ -1,4 +1,4 @@
-package EAI::Common 0.2;
+package EAI::Common 0.3;
 
 use strict;
 use Exporter; use Log::Log4perl qw(get_logger); use EAI::DateUtil; use Data::Dumper; use Getopt::Long qw(:config no_ignore_case); use Scalar::Util qw(looks_like_number);
@@ -150,6 +150,7 @@ my %hashCheck = (
 		lineCode => "", # additional line based processing code, invoked after whole line has been read
 		localFilesystemPath => "", # if files are taken from or put to the local file system with getLocalFiles/putFileInLocalDir then the path is given here. Setting this to "." avoids copying files.
 		optional => 1, # to avoid error message for missing optional files, set this to 1
+		redoTimestampPattern => "", # part of the regex for checking against filename in redo with additional timestamp/redoDir pattern (e.g. "redo", numbers and _), anything after files barename (and before ".$ext" if extension is defined) is regarded as a timestamp. Example: '[\d_]', the regex is built like ($ext ? qr/$barename($timestampPattern|$redoDir)*\.$ext/ : qr/$barename($timestampPattern|$redoDir)*.*/)
 	},
 	FTP => { # FTP specific configs
 		archiveDir => "", # folder for archived files on the FTP server

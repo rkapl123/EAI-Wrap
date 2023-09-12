@@ -1,4 +1,4 @@
-package EAI::Wrap 0.2;
+package EAI::Wrap 0.3;
 
 use strict;
 use Time::Local; use Time::localtime; use MIME::Lite; use Data::Dumper; use Module::Refresh; use Exporter; use File::Copy; use Cwd; use Archive::Extract;
@@ -146,10 +146,17 @@ sub redoFiles ($) {
 		$barename =~ s/\*.*$//g; # remove glob pattern and quote dots to allow matching with redo file
 	}
 	if (chdir($redoDir)) {
-		for my $redofile (glob("*.$ext")) {
-			$logger->debug("found file $redofile in $redoDir");
-			if ($redofile =~ /$barename.*/) {
-				$logger->info("file $redofile available for redo, matched $barename.*");
+		my $globPattern = $barename."*".($ext ? ".$ext" : ""); # extend glob with .$ext only if defined
+		$logger->debug("checking against glob pattern ".$globPattern);
+		for my $redofile (glob($globPattern)) {
+			$logger->debug("found candidate file $redofile in $redoDir");
+			my $timestampPattern = $File->{redoTimestampPattern};
+			# check against barename with additional timestamp pattern (e.g. numbers and _) and \.$ext only if defined
+			# anything after barename (and before ".$ext" if extension defined) is regarded as a timestamp
+			my $regexCheck = ($ext ? qr/$barename($timestampPattern|$redoDir)*\.$ext/ : qr/$barename($timestampPattern|$redoDir)*.*/);
+			$logger->debug("checking candidate against regex ".$regexCheck);
+			if ($redofile =~ $regexCheck) {
+				$logger->info("file $redofile available for redo, matched regex $barename.*");
 				# only rename if not prohibited and not a glob, else just push into retrievedFiles
 				if (!$File->{avoidRenameForRedo} and $File->{filename} !~ /\*/) {
 					rename $redofile, "$barename.$ext" or $logger->error("error renaming file $redofile to $barename.$ext : $!");
@@ -1593,6 +1600,10 @@ if files are taken from or put to the local file system with getLocalFiles/putFi
 =item optional
 
 to avoid error message for missing optional files, set this to 1
+
+=item redoTimestampPattern
+
+part of the regex for checking against filename in redo with additional timestamp/redoDir pattern (e.g. "redo", numbers and _), anything after files barename (and before ".$ext" if extension is defined) is regarded as a timestamp. Example: '[\d_]', the regex is built like ($ext ? qr/$barename($timestampPattern|$redoDir)*\.$ext/ : qr/$barename($timestampPattern|$redoDir)*.*/)
 
 =back
 
