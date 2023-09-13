@@ -25,7 +25,7 @@ our @EXPORT = qw(%common %config %execute @loads @optload %opt removeFilesinFold
 newDBH beginWork commit rollback readFromDB readFromDBHash doInDB storeInDB deleteFromDB updateInDB getConn setConn
 readText readExcel readXML writeText writeExcel
 removeFilesOlderX fetchFiles putFile moveTempFile archiveFiles removeFiles login getHandle setHandle
-readConfigFile getSensInfo setupConfigMerge getOptions setupEAIWrap extractConfigs checkHash setupLogging checkStartingCond sendGeneralMail
+readConfigFile getSensInfo setupConfigMerge getOptions setupEAIWrap extractConfigs checkHash checkParam setupLogging checkStartingCond sendGeneralMail
 get_logger Dumper);
 
 # initialize module, reading all config files and setting basic execution variables
@@ -71,8 +71,7 @@ sub INIT {
 sub removeFilesinFolderOlderX ($) {
 	my $arg = shift;
 	my $logger = get_logger();
-	my ($FTP) = EAI::Common::extractConfigs($arg,"FTP");
-	EAI::Common::setErrSubject("Cleaning of Archive folders");
+	my ($FTP) = EAI::Common::extractConfigs("Cleaning of Archive folders",$arg,"FTP");
 	return EAI::FTP::removeFilesOlderX($FTP);
 }
 
@@ -80,8 +79,7 @@ sub removeFilesinFolderOlderX ($) {
 sub openDBConn ($) {
 	my $arg = shift;
 	my $logger = get_logger();
-	my ($DB) = EAI::Common::extractConfigs($arg,"DB");
-	$logger->debug("openDBConn");
+	my ($DB) = EAI::Common::extractConfigs("opening DB connection",$arg,"DB");
 	# only for set prefix, take username and password from $config{sensitive}{$DB->{prefix}}
 	if ($DB->{prefix}) {
 		$DB->{user} = getSensInfo($DB->{prefix},"user");
@@ -102,8 +100,7 @@ sub openDBConn ($) {
 sub openFTPConn ($) {
 	my $arg = shift;
 	my $logger = get_logger();
-	my ($FTP) = EAI::Common::extractConfigs($arg,"FTP");
-	$logger->debug("openFTPConn");
+	my ($FTP) = EAI::Common::extractConfigs("opening FTP connection",$arg,"FTP");
 	# only for set prefix, take username, password, hostkey and privKey from $config{sensitive}{$FTP->{prefix}} (directly or via environment hash)
 	if ($FTP->{prefix}) {
 		$FTP->{user} = getSensInfo($FTP->{prefix},"user");
@@ -126,11 +123,9 @@ sub openFTPConn ($) {
 sub redoFiles ($) {
 	my $arg = shift;
 	my $logger = get_logger();
-	my ($File) = EAI::Common::extractConfigs($arg,"File");
 	return unless $common{task}{redoFile};
-	$logger->debug("redoFiles");
+	my ($File) = EAI::Common::extractConfigs("setting/renaming redo files",$arg,"File");
 	my $redoDir = $execute{redoDir};
-	EAI::Common::setErrSubject("setting/renaming redo files");
 	# file extension for local redo 
 	my ($barename,$ext) = $File->{filename} =~ /(.*)\.(.*?)$/; # get file bare name and extension from filename
 	if (!$ext) {
@@ -150,10 +145,14 @@ sub redoFiles ($) {
 		$logger->debug("checking against glob pattern ".$globPattern);
 		for my $redofile (glob($globPattern)) {
 			$logger->debug("found candidate file $redofile in $redoDir");
-			my $timestampPattern = $File->{redoTimestampPattern};
+			my $redoTimestampPatternPart = $common{task}{redoTimestampPatternPart};
+			if (!$redoTimestampPatternPart) {
+				$redoTimestampPatternPart = '[\d_]'; # sensible default, but warn...
+				$logger->warn('missing $common{task}{redoTimestampPatternPart}, set to [\d_]');
+			}
 			# check against barename with additional timestamp pattern (e.g. numbers and _) and \.$ext only if defined
 			# anything after barename (and before ".$ext" if extension defined) is regarded as a timestamp
-			my $regexCheck = ($ext ? qr/$barename($timestampPattern|$redoDir)*\.$ext/ : qr/$barename($timestampPattern|$redoDir)*.*/);
+			my $regexCheck = ($ext ? qr/$barename($redoTimestampPatternPart|$redoDir)*\.$ext/ : qr/$barename($redoTimestampPatternPart|$redoDir)*.*/);
 			$logger->debug("checking candidate against regex ".$regexCheck);
 			if ($redofile =~ $regexCheck) {
 				$logger->info("file $redofile available for redo, matched regex $barename.*");
@@ -178,9 +177,7 @@ sub redoFiles ($) {
 sub getLocalFiles ($) {
 	my $arg = shift;
 	my $logger = get_logger();
-	my ($File,$process) = EAI::Common::extractConfigs($arg,"File","process");
-	$logger->debug("getLocalFiles");
-	EAI::Common::setErrSubject("Getting local files");
+	my ($File,$process) = EAI::Common::extractConfigs("Getting local files",$arg,"File","process");
 	return if $execute{retryBecauseOfError} and !$process->{hadErrors};
 	if ($File->{localFilesystemPath}) {
 		my $localFilesystemPath = $File->{localFilesystemPath};
@@ -226,9 +223,7 @@ sub getLocalFiles ($) {
 sub getFilesFromFTP ($) {
 	my $arg = shift;
 	my $logger = get_logger();
-	my ($FTP,$File,$process) = EAI::Common::extractConfigs($arg,"FTP","File","process");
-	$logger->debug("getFilesFromFTP");
-	EAI::Common::setErrSubject("Getting files from ftp");
+	my ($FTP,$File,$process) = EAI::Common::extractConfigs("Getting files from ftp",$arg,"FTP","File","process");
 	return if $execute{retryBecauseOfError} and !$process->{hadErrors};
 	@{$execute{retrievedFiles}} = (); # reset last retrieved, but this is also necessary to create the retrievedFiles hash entry for passing back the list from getFiles
 	if (defined($FTP->{remoteDir})) {
@@ -256,8 +251,7 @@ sub getFilesFromFTP ($) {
 sub getFiles ($) {
 	my $arg = shift;
 	my $logger = get_logger();
-	my ($FTP,$File,$process) = EAI::Common::extractConfigs($arg,"FTP","File","process");
-	$logger->debug("getFiles");
+	my ($FTP,$File,$process) = EAI::Common::extractConfigs("",$arg,"FTP","File","process");
 	return if $execute{retryBecauseOfError} and !$process->{hadErrors};
 	if ($File->{localFilesystemPath}) {
 		return getLocalFiles($arg);
@@ -270,8 +264,7 @@ sub getFiles ($) {
 sub checkFiles ($) {
 	my $arg = shift;
 	my $logger = get_logger();
-	my ($File,$process) = EAI::Common::extractConfigs($arg,"File","process");
-	$logger->debug("checkFiles");
+	my ($File,$process) = EAI::Common::extractConfigs("checking for existence of files",$arg,"File","process");
 	return 1 if $execute{retryBecauseOfError} and !$process->{hadErrors};
 	my $redoDir = $execute{redoDir}."/" if $common{task}{redoFile};
 	my $fileDoesntExist;
@@ -325,8 +318,7 @@ sub checkFiles ($) {
 sub extractArchives ($) {
 	my $arg = shift;
 	my $logger = get_logger();
-	my ($process) = EAI::Common::extractConfigs($arg,"process");
-	$logger->debug("extractArchives");
+	my ($process) = EAI::Common::extractConfigs("extracting archives",$arg,"process");
 	return 1 if $execute{retryBecauseOfError} and !$process->{hadErrors};
 	my $redoDir = $execute{redoDir}."/" if $common{task}{redoFile};
 	if ($execute{retrievedFiles}) { 
@@ -359,13 +351,11 @@ sub extractArchives ($) {
 	return 1;
 }
 
-# get additional data from DB
+# get additional data from DB, optionally give ref to hash in argument $refToDataHash for returning data there (otherwise data is returned in $process->{additionalLookupData})
 sub getAdditionalDBData ($;$) {
 	my ($arg,$refToDataHash) = @_;
 	my $logger = get_logger();
-	my ($DB,$process) = EAI::Common::extractConfigs($arg,"DB","process");
-	$logger->debug("getAdditionalDBData");
-	EAI::Common::setErrSubject("Getting additional data from DB");
+	my ($DB,$process) = EAI::Common::extractConfigs("Getting additional data from DB",$arg,"DB","process");
 	return 1 if $execute{retryBecauseOfError} and !$process->{hadErrors};
 	# reset additionalLookupData to avoid strange errors in retrying run. Also needed to pass data back as reference
 	%{$process->{additionalLookupData}} = ();
@@ -373,17 +363,18 @@ sub getAdditionalDBData ($;$) {
 		$logger->error("passed second argument \$refToDataHash is not a ref to a hash");
 		return 0;
 	}
+	return 0 if !checkParam($DB,"additionalLookup");
+	return 0 if !checkParam($DB,"additionalLookupKeys");
 	# additional lookup needed (e.g. used in addtlProcessing), if optional $refToDataHash given pass data into that?
-	return EAI::DB::readFromDBHash({query => $DB->{additionalLookup}, keyfields=> $DB->{additionalLookupKeys}}, ($refToDataHash ? \%{$refToDataHash} : \%{$process->{additionalLookupData}}) ) if ($DB->{additionalLookup});
+	return EAI::DB::readFromDBHash({query => $DB->{additionalLookup}, keyfields=> $DB->{additionalLookupKeys}}, ($refToDataHash ? \%{$refToDataHash} : \%{$process->{additionalLookupData}}));
 }
 
 # read data from file
 sub readFileData ($) {
 	my $arg = shift;
 	my $logger = get_logger();
-	my ($File,$process) = EAI::Common::extractConfigs($arg,"File","process");
+	my ($File,$process) = EAI::Common::extractConfigs("reading file data",$arg,"File","process");
 	my $redoDir = $execute{redoDir}."/" if $common{task}{redoFile};
-	$logger->debug("readFileData");
 	return 1 if $execute{retryBecauseOfError} and !$process->{hadErrors};
 	my $readSuccess;
 	if ($File->{format_xlformat}) {
@@ -406,8 +397,7 @@ sub readFileData ($) {
 sub dumpDataIntoDB ($) {
 	my $arg = shift;
 	my $logger = get_logger();
-	my ($DB,$File,$process) = EAI::Common::extractConfigs($arg,"DB","File","process");
-	$logger->debug("dumpDataIntoDB");
+	my ($DB,$File,$process) = EAI::Common::extractConfigs("storing data to DB",$arg,"DB","File","process");
 	return 1 if $execute{retryBecauseOfError} and !$process->{hadErrors};
 	our $hadDBErrors = 0;
 	if ($process->{data}) { # data supplied?
@@ -505,8 +495,7 @@ sub dumpDataIntoDB ($) {
 sub markProcessed ($) {
 	my $arg = shift;
 	my $logger = get_logger();
-	my ($File,$process) = EAI::Common::extractConfigs($arg,"File","process");
-	$logger->debug("markProcessed");
+	my ($File,$process) = EAI::Common::extractConfigs("marking processed",$arg,"File","process");
 	# this is important for the archival/deletion on the FTP Server!
 	if ($File->{emptyOK} || !$process->{hadErrors}) {
 		for (@{$process->{filenames}}) {
@@ -530,10 +519,8 @@ sub markProcessed ($) {
 sub writeFileFromDB ($) {
 	my $arg = shift;
 	my $logger = get_logger();
-	my ($DB,$File,$process) = EAI::Common::extractConfigs($arg,"DB","File","process");
-	$logger->debug("writeFileFromDB");
+	my ($DB,$File,$process) = EAI::Common::extractConfigs("creating/writing file from DB",$arg,"DB","File","process");
 	return 1 if $execute{retryBecauseOfError} and !$process->{hadErrors};
-	EAI::Common::setErrSubject("creating/writing file from DB");
 	my @columnnames;
 	# get data from database, including column names (passed by ref)
 	@{$DB->{columnnames}} = (); # reset columnnames to pass data back as reference
@@ -561,8 +548,7 @@ sub writeFileFromDB ($) {
 sub putFileInLocalDir ($) {
 	my $arg = shift;
 	my $logger = get_logger();
-	$logger->debug("putFileInLocalDir");
-	my ($File,$process) = EAI::Common::extractConfigs($arg,"File","process");
+	my ($File,$process) = EAI::Common::extractConfigs("putting file into local folder",$arg,"File","process");
 	return 1 if $execute{retryBecauseOfError} and !$process->{hadErrors};
 	if ($File->{localFilesystemPath} and $File->{localFilesystemPath} ne '.') {
 		$logger->info("moving file '".$File->{filename}."' into local dir ".$File->{localFilesystemPath});
@@ -586,8 +572,7 @@ sub putFileInLocalDir ($) {
 sub markForHistoryDelete ($) {
 	my $arg = shift;
 	my $logger = get_logger();
-	$logger->debug("markForHistoryDelete");
-	my ($File) = EAI::Common::extractConfigs($arg,"File");
+	my ($File) = EAI::Common::extractConfigs("",$arg,"File");
 	if ($File->{dontKeepHistory}) {
 		push @{$execute{filesToDelete}}, $File->{filename};
 	} elsif (!$File->{dontMoveIntoHistory}) {
@@ -599,7 +584,7 @@ sub markForHistoryDelete ($) {
 sub uploadFileToFTP ($) {
 	my $arg = shift;
 	my $logger = get_logger();
-	my ($FTP,$File,$process) = EAI::Common::extractConfigs($arg,"FTP","File","process");
+	my ($FTP,$File,$process) = EAI::Common::extractConfigs("uploading files to FTP",$arg,"FTP","File","process");
 	return 1 if $execute{retryBecauseOfError} and !$process->{hadErrors};
 	markForHistoryDelete($arg) unless ($FTP->{localDir});
 	if (defined($FTP->{remoteDir})) {
@@ -619,7 +604,7 @@ sub uploadFileToFTP ($) {
 sub uploadFileCMD ($) {
 	my $arg = shift;
 	my $logger = get_logger();
-	my ($FTP,$File,$process) = EAI::Common::extractConfigs($arg,"FTP","File","process");
+	my ($FTP,$File,$process) = EAI::Common::extractConfigs("uploading files with CMD",$arg,"FTP","File","process");
 	return 1 if $execute{retryBecauseOfError} and !$process->{hadErrors};
 	markForHistoryDelete($arg) unless ($FTP->{localDir});
 	if ($process->{uploadCMD}) {
@@ -663,8 +648,7 @@ sub uploadFileCMD ($) {
 sub uploadFile ($) {
 	my $arg = shift;
 	my $logger = get_logger();
-	my ($File,$process) = EAI::Common::extractConfigs($arg,"File","process");
-	$logger->debug("uploadFile");
+	my ($File,$process) = EAI::Common::extractConfigs("",$arg,"File","process");
 	return 1 if $execute{retryBecauseOfError} and !$process->{hadErrors};
 	if ($File->{localFilesystemPath}) {
 		return putFileInLocalDir($arg);
@@ -1721,7 +1705,7 @@ set user directly, either directly (insecure -> visible) or via sensitive lookup
 
 =item process
 
-used to pass information within each process (data, additionalLookupData, filenames, hadErrors or commandline parameters starting with interactive) and for additional configurations not suitable for DB, File or FTP (e.g. uploadCMD)
+used to pass information within each process (data, additionalLookupData, filenames, hadErrors or commandline parameters starting with interactive) and for additional configurations not suitable for DB, File or FTP (e.g. uploadCMD* and onlyExecFor)
 
 =over 4
 
@@ -1753,6 +1737,10 @@ set to 1 if there were any errors in the process
 
 interactive options (are not checked), can be used to pass arbitrary data via command line into the script (eg a selected date for the run with interactive_date).
 
+=item onlyExecFor
+
+mark loads to only be executed when $common{task}{execOnly} !~ $load->{process}{onlyExecFor}
+
 =item uploadCMD
 
 upload command for use with uploadFileCMD
@@ -1777,6 +1765,10 @@ contains parameters used on the task script level
 
 optional custom timestamp to be added to filenames moved to History/HistoryUpload/FTP archive, if not given, get_curdatetime is used (YYYYMMDD_hhmmss)
 
+=item execOnly
+
+used to remove loads where $common{task}{execOnly} !~ $load->{process}{onlyExecFor}
+
 =item ignoreNoTest
 
 ignore the notest file in the process-script folder, usually preventing all runs that are not in production
@@ -1789,9 +1781,9 @@ latest time that planned repitition should last
 
 flag for specifying a redo
 
-=item redoTimestampPattern
+=item redoTimestampPatternPart
 
-part of the regex for checking against filename in redo with additional timestamp/redoDir pattern (e.g. "redo", numbers and _), anything after files barename (and before ".$ext" if extension is defined) is regarded as a timestamp. Example: '[\d_]', the regex is built like ($ext ? qr/$barename($timestampPattern|$redoDir)*\.$ext/ : qr/$barename($timestampPattern|$redoDir)*.*/)
+part of the regex for checking against filename in redo with additional timestamp/redoDir pattern (e.g. "redo", numbers and _), anything after files barename (and before ".$ext" if extension is defined) is regarded as a timestamp. Example: '[\d_]', the regex is built like ($ext ? qr/$barename($redoTimestampPatternPart|$redoDir)*\.$ext/ : qr/$barename($redoTimestampPatternPart|$redoDir)*.*/)
 
 =item retrySecondsErr
 

@@ -515,12 +515,12 @@ sub updateInDB ($$) {
 	}
 }
 
-# set handle with externally created DBD::ODBC connection (if EAI::DB::newDBH capabilities are not sufficient)
+# set handle with externally created DBI::db connection (if EAI::DB::newDBH capabilities are not sufficient)
 sub setConn ($;$) {
 	my ($handle,$setDSN) = shift;
 	my $logger = get_logger();
 	eval {
-		die "no DBD::ODBC handle passed to setHandle, argument is '".(defined($handle) ? ref($handle) : "undefined")."'" unless $handle && blessed $handle && $handle->isa('DBD::ODBC') ;
+		die "no DBI::db handle passed to setHandle, argument is '".(defined($handle) ? ref($handle) : "undefined")."'" unless $handle && blessed $handle && $handle->isa('DBI::db') ;
 		$dbh = $handle;
 		$DSN = $setDSN;
 	};

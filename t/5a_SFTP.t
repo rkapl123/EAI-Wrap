@@ -33,11 +33,13 @@ unless (my $return = eval $siteCONFIGFILE) {
 	die("Error executing config file") unless $return;
 }
 
+# 1
 my ($ftpHandle, $ftpHost);
 login({remoteHost => {Prod => "unknown", Test => "unknown"}, sshInstallationPath => $sshExecutable, maxConnectionTries => 2,privKey => "",FTPdebugLevel => 0,user => "", pwd => ""},{env => "Test"});
 ($ftpHandle, $ftpHost) = getHandle();
 ok(!defined($ftpHandle),"expected login failure");
 
+# 2
 login({remoteHost => {Prod => "localhost",Test => "localhost"}, sshInstallationPath => $sshExecutable, maxConnectionTries => 2,privKey => "",FTPdebugLevel => 0,hostkey => $config{sensitive}{sftp}{hostkey},user => $config{sensitive}{sftp}{user}, pwd => $config{sensitive}{sftp}{pwd}},{env => "Test"});
 ($ftpHandle, $ftpHost) = getHandle();
 ok(defined($ftpHandle) && $ftpHost eq "localhost","login success");
@@ -47,41 +49,52 @@ setHandle($ftpHandle) or print "error: $@";
 $ftpHandle->mkdir("Archive");
 $ftpHandle->mkdir("relativepath");
 
+# 3
 putFile({remoteDir => "/relativepath", dontUseTempFile=>1},{fileToWrite => "test.txt"});
 my $fileUploaded1 = $ftpHandle->ls(".", wanted => qr/test\.txt/, names_only => 1) or die "unable to retrieve directory: ".$ftpHandle->error;
 ok($fileUploaded1->[0] eq "test.txt","test.txt uploaded file relativepath");
 
+# 4
 putFile({remoteDir => "/relativepath", dontMoveTempImmediately=>1},{fileToWrite => "test.txt"});
 my $fileUploaded2 = $ftpHandle->ls(".", wanted => qr/temp\.test\.txt/, names_only => 1) or die "unable to retrieve directory: ".$ftpHandle->error;
 ok($fileUploaded2->[0] eq "temp.test.txt","test.txt uploaded temp file relativepath");
 
+# 5
 putFile({remoteDir => "/",dontMoveTempImmediately =>1},{fileToWrite => "test.txt"});
 my $fileUploaded3 = $ftpHandle->ls(".", wanted => qr/temp\.test\.txt/, names_only => 1) or die "unable to retrieve directory: ".$ftpHandle->error;
 ok($fileUploaded3->[0] eq "temp.test.txt","test.txt uploaded temp file");
 unlink "test.txt",
 
+# 6
 moveTempFile({remoteDir => "."},{fileToWrite => "test.txt"});
 my $fileMoved = $ftpHandle->ls(".", wanted => qr/^test\.txt$/, names_only => 1) or die "unable to retrieve directory: ".$ftpHandle->error;
 ok($fileMoved->[0] eq "test.txt","test.txt renamed temp file");
 
+# 7
 my @retrieved;
 fetchFiles({remoteDir => "",localDir => "."},{retrievedFiles=>\@retrieved},{fileToRetrieve => "test.txt"});
 ok($retrieved[0] eq "test.txt","retrieved file in returned array");
+# 8
 file_contains_like("test.txt",qr/$filecontent/,"test.txt downloaded file");
 
+# 9
 my @retrieved2;
 fetchFiles({remoteDir => "",localDir => "."},{retrievedFiles=>\@retrieved2},{fileToRetrieve => "relativepath/*.txt"});
 ok($retrieved2[0] eq "temp.test.txt","retrieved file in returned array");
+# 10
 ok($retrieved2[1] eq "test.txt","retrieved file in returned array");
 
+# 11
 archiveFiles({remoteDir => "", archiveDir => "Archive", timestamp => "date_time.", filesToArchive => ["test.txt"]});
 my $fileArchived = $ftpHandle->ls("Archive", wanted => qr/date_time\.test\.txt/, names_only => 1) or die "unable to retrieve directory: ".$ftpHandle->error;
 ok($fileArchived->[0] eq "date_time.test.txt","test.txt archived file to date_time.test.txt");
 
+# 12
 removeFiles({remoteDir => "relativepath", filesToRemove => ["temp.test.txt", "test.txt"]});
 my $fileExisting1 = $ftpHandle->ls(".", wanted => qr/.*\.txt/, names_only => 1) or die "unable to retrieve directory: ".$ftpHandle->error;
 ok(@$fileExisting1 == 0, "removeFiles removed multiple files");
 
+# 13
 removeFilesOlderX({remoteDir => "/", remove => {removeFolders => ["Archive"], day=>-1, mon=>0, year=>0},});
 # we're still in Archive, so ls "."
 my $fileExisting2 = $ftpHandle->ls(".", wanted => qr/date_time\.test\.txt/, names_only => 1) or die "unable to retrieve directory: ".$ftpHandle->error;

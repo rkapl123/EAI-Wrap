@@ -8,7 +8,7 @@ BEGIN {
 }
 
 our @ISA = qw(Exporter);
-our @EXPORT = qw($EAI_WRAP_CONFIG_PATH $EAI_WRAP_SENS_CONFIG_PATH %common %config %execute @loads @optload %opt readConfigFile getSensInfo setupConfigMerge getOptions setupEAIWrap extractConfigs checkHash getLogFPathForMail getLogFPath MailFilter setErrSubject setupLogging checkStartingCond sendGeneralMail looks_like_number get_logger);
+our @EXPORT = qw($EAI_WRAP_CONFIG_PATH $EAI_WRAP_SENS_CONFIG_PATH %common %config %execute @loads @optload %opt readConfigFile getSensInfo setupConfigMerge getOptions setupEAIWrap extractConfigs checkHash checkParam getLogFPathForMail getLogFPath MailFilter setErrSubject setupLogging checkStartingCond sendGeneralMail looks_like_number get_logger);
 
 my %hashCheck = (
 	common => {
@@ -180,7 +180,7 @@ my %hashCheck = (
 		type => "", # (A)scii or (B)inary
 		user => "", # set user directly, either directly (insecure -> visible) or via sensitive lookup
 	},
-	process => { # used to pass information within each process (data, additionalLookupData, filenames, hadErrors or commandline parameters starting with interactive) and for additional configurations not suitable for DB, File or FTP (e.g. uploadCMD)
+	process => { # used to pass information within each process (data, additionalLookupData, filenames, hadErrors or commandline parameters starting with interactive) and for additional configurations not suitable for DB, File or FTP (e.g. uploadCMD* and onlyExecFor)
 		additionalLookupData => {}, # additional data retrieved from database with EAI::Wrap::getAdditionalDBData
 		archivefilenames => [], # in case a zip archive package is retrieved, the filenames of these packages are kept here, necessary for cleanup at the end of the process
 		data => [], # loaded data: array (rows) of hash refs (columns)
@@ -188,16 +188,18 @@ my %hashCheck = (
 		filesProcessed => {}, # hash for checking the processed files, necessary for cleanup at the end of the whole task
 		hadErrors => 1, # set to 1 if there were any errors in the process
 		interactive_ => "", # interactive options (are not checked), can be used to pass arbitrary data via command line into the script (eg a selected date for the run with interactive_date).
+		onlyExecFor => qr//, # mark loads to only be executed when $common{task}{execOnly} !~ $load->{process}{onlyExecFor}
 		uploadCMD => "", # upload command for use with uploadFileCMD
 		uploadCMDPath => "", # path of upload command
 		uploadCMDLogfile => "", # logfile where command given in uploadCMD writes output (for error handling)
 	},
 	task => { # contains parameters used on the task script level
 		customHistoryTimestamp => "", # optional custom timestamp to be added to filenames moved to History/HistoryUpload/FTP archive, if not given, get_curdatetime is used (YYYYMMDD_hhmmss)
+		execOnly => "", # used to remove loads where $common{task}{execOnly} !~ $load->{process}{onlyExecFor}
 		ignoreNoTest => 0, # ignore the notest file in the process-script folder, usually preventing all runs that are not in production
 		plannedUntil => "2359", # latest time that planned repitition should last
 		redoFile => 1, # flag for specifying a redo
-		redoTimestampPattern => "", # part of the regex for checking against filename in redo with additional timestamp/redoDir pattern (e.g. "redo", numbers and _), anything after files barename (and before ".$ext" if extension is defined) is regarded as a timestamp. Example: '[\d_]', the regex is built like ($ext ? qr/$barename($timestampPattern|$redoDir)*\.$ext/ : qr/$barename($timestampPattern|$redoDir)*.*/)
+		redoTimestampPatternPart => "", # part of the regex for checking against filename in redo with additional timestamp/redoDir pattern (e.g. "redo", numbers and _), anything after files barename (and before ".$ext" if extension is defined) is regarded as a timestamp. Example: '[\d_]', the regex is built like ($ext ? qr/$barename($redoTimestampPatternPart|$redoDir)*\.$ext/ : qr/$barename($redoTimestampPatternPart|$redoDir)*.*/)
 		retrySecondsErr => 60, # retry period in case of error
 		retrySecondsErrAfterXfails => 600, # after fail count is reached this alternate retry period in case of error is applied. If 0/undefined then job finishes after fail count
 		retrySecondsXfails => 3, # fail count after which the retrySecondsErr are changed to retrySecondsErrAfterXfails
@@ -294,6 +296,15 @@ sub setupConfigMerge {
 		# merge common and cmdline option overrides into loads
 		$loads[$i]={DB=>{%{$common{DB}},%{$loads[$i]{DB}},%{$optload[$i]{DB}}},FTP=>{%{$common{FTP}},%{$loads[$i]{FTP}},%{$optload[$i]{FTP}}},File=>{%{$common{File}},%{$loads[$i]{File}},%{$optload[$i]{File}}},process=>{%{$common{process}},%{$loads[$i]{process}},%{$optload[$i]{process}}}};
 	}
+	# remove load elements where $common{task}{execOnly} !~ $load->{process}{onlyExecFor}
+	my $i;
+	do {
+		if ($common{task}{execOnly} and $common{task}{execOnly} !~ $loads[$i]{process}{onlyExecFor}) {
+			$logger->debug("removing load $i because \$common{task}{execOnly} given and $common{task}{execOnly} !~ $loads[$i]{process}{onlyExecFor} (\$load{process}{onlyExecFor})");
+			splice @loads, $i, 1;
+		}
+		$i++;
+	} while $i <= $#loads;
 }
 
 # get options for overriding configured settings
@@ -339,10 +350,13 @@ sub getOptions {
 	}
 }
 
-# extract config hashes (DB,FTP,File,process) from $arg hash and return as list of hashes. The config hashes to be extracted are given in string list @required and returned in @ret
-sub extractConfigs ($$;@) {
-	my ($arg,@required) = @_;
+# extract config hashes (DB,FTP,File,process; task is always part of common, which is always there) from $arg hash and return as list of hashes. The config hashes to be extracted are given in string list @required and returned in @ret
+# side effect: sets error subject to first argument $contextSub if ne ""
+sub extractConfigs ($$$;@) {
+	my ($contextSub,$arg,@required) = @_;
 	my $logger = get_logger();
+	$logger->debug(($contextSub ? $contextSub." for " : "").(caller(1))[3]);
+	setErrSubject($contextSub) if $contextSub;
 	my @ret;
 	if (ref($arg) eq "HASH") {
 		for my $req (@required) {
@@ -360,7 +374,7 @@ sub extractConfigs ($$;@) {
 # check config hash passed in $hash for validity against hashCheck (valid key entries are there + their valid value types (examples)). returns 0 on error and exception $@ contains details
 sub checkHash ($$) {
 	my ($hash, $hashName) = @_;
-	my $locStr =  " when calling ".(caller(2))[3].", line ".(caller(2))[2]." in ".(caller(2))[1];
+	my $locStr = " when calling ".(caller(2))[3].", line ".(caller(2))[2]." in ".(caller(2))[1];
 	eval {
 		for my $defkey (keys %{$hash}) {
 			unless ($hashName eq "process" and $defkey =~ /interactive.*/) {
@@ -369,7 +383,7 @@ sub checkHash ($$) {
 				} else {
 					# check type for existing keys, if explicitly not defined then ignore...
 					if (defined($hash->{$defkey})) {
-						die "wrong reference type for value: \$".$hashName."{".$defkey."},".$locStr if (ref($hashCheck{$hashName}{$defkey}) ne ref($hash->{$defkey}) && !$ignoreType{$hashName.$defkey});
+						die "wrong reference type for value: \$".$hashName."{".$defkey."}: ".ref($hashCheck{$hashName}{$defkey})." not like passed:".ref($hash->{$defkey}).",".$locStr if (ref($hashCheck{$hashName}{$defkey}) ne ref($hash->{$defkey}) && !$ignoreType{$hashName.$defkey});
 						die "wrong type for value: \$".$hashName."{".$defkey."},".$locStr if (looks_like_number($hashCheck{$hashName}{$defkey}) ne looks_like_number($hash->{$defkey}) && !$ignoreType{$hashName.$defkey});
 					}
 				}
@@ -377,6 +391,26 @@ sub checkHash ($$) {
 		}
 	};
 	return 0 if $@;
+	return 1;
+}
+
+# check parameter passed in $subhash
+sub checkParam ($$) {
+	my ($subhash,$keytoCheck) = @_;
+	my $logger = get_logger();
+	if (ref($subhash) ne "HASH") {
+		$logger->error("passed argument subhash to checkParam is not a hash");
+		return 0;
+	}
+	my ($subhashname) = split /=/, Dumper($subhash);
+	$subhashname =~ s/\$//;
+	if (!defined($subhash->{$keytoCheck})) {
+		$logger->error("key $keytoCheck not defined in subhash ".Dumper($subhash));
+		return 0;
+	} elsif (!$subhash->{$keytoCheck} and !looks_like_number($hashCheck{$subhashname}{$keytoCheck})) {
+		$logger->error("value of key $keytoCheck empty in subhash ".Dumper($subhash));
+		return 0;
+	}
 	return 1;
 }
 
@@ -494,7 +528,7 @@ sub refresh() {
 sub checkStartingCond ($) {
 	my $arg = shift;
 	my $logger = get_logger();
-	my ($task) = extractConfigs($arg,"task");
+	my ($task) = extractConfigs("checking starting conditions",$arg,"task");
 
 	my $curdate = get_curdate();
 	# skipHolidays is either a calendar or 1 (then defaults to $task->{skipHolidaysDefault})
@@ -637,13 +671,17 @@ setupConfigMerge creates cascading inheritance of config/DB/File/FTP/process/tas
 
 get options for overriding configured settings, results are stored in globally available hash %opt and list @optloads
 
-=item extractConfigs ($$;@)
+=item extractConfigs ($$$;@)
 
-extract config hashes (DB,FTP,File,process,task) from $arg ref to hash (first argument) and return as list of hashes. The config hashes to be extracted are given in the following parameter list @required.
+sets error subject to $contextSub (first argument) and extracts config hashes (DB,FTP,File,process,task) from ref to hash $arg (second argument) and return them as a list of hashes. The config hashes to be extracted are given as strings in the following parameter list @required (at least one is required).
 
 =item checkHash ($$)
 
 check config hash passed in $hash for validity against hashCheck (valid key entries are there + their valid value types (examples)). returns 0 on error and exception $@ contains details, to allow for checkHash(..) or {handle exception}
+
+=item checkParam ($$)
+
+check parameter key from second argument within first argument $subhash, returns 0 if not defined or not existing (only non-numerics)
 
 =item setupEAIWrap
 

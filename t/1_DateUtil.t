@@ -131,7 +131,7 @@ like(get_curdatetime,qr/\d{8}_\d{6}/,'get_curdatetime');
 like(get_curdate_dot,qr/\d{2}\.\d{2}\.20\d{2}/,'get_curdate_dot');
 is(formatDate(2019,1,1,"D.M.Y"),"01.01.2019",'formatDate D.M.Y');
 is(formatDate(2019,3,1,"D.MMM.Y"),"01.Mar.2019",'formatDate D.MMM.Y');
-is(formatDate(2019,3,1,"D.mmm.Y"),"01.Mär.2019",'formatDate D.mmm.Y');
+is(formatDate(2019,3,1,"D.mmm.Y"),"01.MÃ¤r.2019",'formatDate D.mmm.Y');
 is(formatDateFromYYYYMMDD("20190101","D.M.Y"),"01.01.2019",'formatDateFromYYYYMMDD D.M.Y');
 is(get_curdate_dash_plus_X_years(100,"20190101"),"01-01-2119",'get_curdate_dash_plus_X_years with date');
 is(get_curdate_dash_plus_X_years(100,"20190105",4),"01-01-2119",'get_curdate_dash_plus_X_years with date and subtract days');
