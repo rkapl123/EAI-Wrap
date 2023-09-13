@@ -1601,10 +1601,6 @@ if files are taken from or put to the local file system with getLocalFiles/putFi
 
 to avoid error message for missing optional files, set this to 1
 
-=item redoTimestampPattern
-
-part of the regex for checking against filename in redo with additional timestamp/redoDir pattern (e.g. "redo", numbers and _), anything after files barename (and before ".$ext" if extension is defined) is regarded as a timestamp. Example: '[\d_]', the regex is built like ($ext ? qr/$barename($timestampPattern|$redoDir)*\.$ext/ : qr/$barename($timestampPattern|$redoDir)*.*/)
-
 =back
 
 =item FTP
@@ -1792,6 +1788,10 @@ latest time that planned repitition should last
 =item redoFile
 
 flag for specifying a redo
+
+=item redoTimestampPattern
+
+part of the regex for checking against filename in redo with additional timestamp/redoDir pattern (e.g. "redo", numbers and _), anything after files barename (and before ".$ext" if extension is defined) is regarded as a timestamp. Example: '[\d_]', the regex is built like ($ext ? qr/$barename($timestampPattern|$redoDir)*\.$ext/ : qr/$barename($timestampPattern|$redoDir)*.*/)
 
 =item retrySecondsErr
 

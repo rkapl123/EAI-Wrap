@@ -150,7 +150,6 @@ my %hashCheck = (
 		lineCode => "", # additional line based processing code, invoked after whole line has been read
 		localFilesystemPath => "", # if files are taken from or put to the local file system with getLocalFiles/putFileInLocalDir then the path is given here. Setting this to "." avoids copying files.
 		optional => 1, # to avoid error message for missing optional files, set this to 1
-		redoTimestampPattern => "", # part of the regex for checking against filename in redo with additional timestamp/redoDir pattern (e.g. "redo", numbers and _), anything after files barename (and before ".$ext" if extension is defined) is regarded as a timestamp. Example: '[\d_]', the regex is built like ($ext ? qr/$barename($timestampPattern|$redoDir)*\.$ext/ : qr/$barename($timestampPattern|$redoDir)*.*/)
 	},
 	FTP => { # FTP specific configs
 		archiveDir => "", # folder for archived files on the FTP server
@@ -198,6 +197,7 @@ my %hashCheck = (
 		ignoreNoTest => 0, # ignore the notest file in the process-script folder, usually preventing all runs that are not in production
 		plannedUntil => "2359", # latest time that planned repitition should last
 		redoFile => 1, # flag for specifying a redo
+		redoTimestampPattern => "", # part of the regex for checking against filename in redo with additional timestamp/redoDir pattern (e.g. "redo", numbers and _), anything after files barename (and before ".$ext" if extension is defined) is regarded as a timestamp. Example: '[\d_]', the regex is built like ($ext ? qr/$barename($timestampPattern|$redoDir)*\.$ext/ : qr/$barename($timestampPattern|$redoDir)*.*/)
 		retrySecondsErr => 60, # retry period in case of error
 		retrySecondsErrAfterXfails => 600, # after fail count is reached this alternate retry period in case of error is applied. If 0/undefined then job finishes after fail count
 		retrySecondsXfails => 3, # fail count after which the retrySecondsErr are changed to retrySecondsErrAfterXfails

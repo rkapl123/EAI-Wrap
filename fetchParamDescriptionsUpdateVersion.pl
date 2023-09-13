@@ -49,6 +49,7 @@ sub read_file {
 	my ($filename) = @_;
 
 	open my $in, '<:encoding(UTF-8)', $filename or die "Could not open '$filename' for reading $!";
+	binmode($in);
 	local $/ = undef;
 	my $all = <$in>;
 	close $in;
