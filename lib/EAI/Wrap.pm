@@ -1,6 +1,6 @@
-package EAI::Wrap 0.3;
+package EAI::Wrap 0.4;
 
-use strict;
+use strict; use feature 'unicode_strings';
 use Time::Local; use Time::localtime; use MIME::Lite; use Data::Dumper; use Module::Refresh; use Exporter; use File::Copy; use Cwd; use Archive::Extract;
 # we make $EAI::Common::common/config/execute/loads an alias for $EAI::Wrap::common/config/execute/loads so that the user can set it without knowing anything about the Common package!
 our %common;
@@ -57,13 +57,8 @@ sub INIT {
 		EAI::Common::readConfigFile($_) for sort glob($EAI_WRAP_SENS_CONFIG_PATH."/".$execute{envraw}."/*.config");
 	}
 	EAI::Common::getOptions(); # getOptions before logging setup as centralLogHandling depends on interactive options passed
-	my $return = 1;
-	$return = eval $config{executeOnInit} if $config{executeOnInit};
-	unless ($return) {
-		die("Error parsing config{executeOnInit}: $@") if $@;
-		die("Error executing config{executeOnInit}: $!") unless defined $return;
-		die("Error executing config{executeOnInit}") unless $return;
-	}
+	eval $config{executeOnInit} if $config{executeOnInit};
+	die("Error parsing config{executeOnInit} ($config{executeOnInit}): $@") if $@;
 	EAI::Common::setupLogging();
 }
 
@@ -112,8 +107,8 @@ sub openFTPConn ($) {
 		$logger->error("ftp user neither set in \$FTP->{user} nor in \$config{sensitive}{".$FTP->{prefix}."}{user} !");
 		return 0;
 	};
-	EAI::FTP::login($FTP,\%execute) or do {
-		$logger->error("couldn't open ftp connection for ".$FTP->{remoteHost}{$execute{env}});
+	EAI::FTP::login($FTP,$FTP->{remoteHost}{$execute{env}}) or do {
+		$logger->error("couldn't open ftp connection for \$FTP{remoteHost}{$execute{env}} (".$FTP->{remoteHost}{$execute{env}}.")");
 		return 0; # false means error in connection and signal to die...
 	};
 	return 1; 
@@ -173,7 +168,7 @@ sub redoFiles ($) {
 	return 1;
 }
 
-# get local file(s) from source into homedir and extract archives if needed
+# get local file(s) from source into homedir
 sub getLocalFiles ($) {
 	my $arg = shift;
 	my $logger = get_logger();
@@ -231,7 +226,7 @@ sub getFilesFromFTP ($) {
 			return redoFiles($arg);
 		} else {
 			if ($File->{filename}) {
-				if (!EAI::FTP::fetchFiles ($FTP,\%execute,{fileToRetrieve=>$File->{filename},fileToRetrieveOptional=>$File->{optional}})) {
+				if (!EAI::FTP::fetchFiles ($FTP,{firstRunSuccess=>$execute{firstRunSuccess},homedir=>$execute{homedir},fileToRetrieve=>$File->{filename},fileToRetrieveOptional=>$File->{optional},retrievedFiles=>$execute{retrievedFiles}})) {
 					$logger->error("error in fetching file from FTP") if !$execute{retryBecauseOfError};
 					return 0;
 				}
@@ -260,7 +255,7 @@ sub getFiles ($) {
 	}
 }
 
-# check files for continuation of processing
+# check files for continuation of processing and extract archives if needed
 sub checkFiles ($) {
 	my $arg = shift;
 	my $logger = get_logger();
@@ -378,11 +373,11 @@ sub readFileData ($) {
 	return 1 if $execute{retryBecauseOfError} and !$process->{hadErrors};
 	my $readSuccess;
 	if ($File->{format_xlformat}) {
-		$readSuccess = EAI::File::readExcel($File, $process, $process->{filenames}, $redoDir);
+		$readSuccess = EAI::File::readExcel($File, \@{$process->{data}}, $process->{filenames}, $redoDir);
 	} elsif ($File->{format_XML}) {
-		$readSuccess = EAI::File::readXML($File, $process, $process->{filenames}, $redoDir);
+		$readSuccess = EAI::File::readXML($File, \@{$process->{data}}, $process->{filenames}, $redoDir);
 	} else {
-		$readSuccess = EAI::File::readText($File, $process, $process->{filenames}, $redoDir);
+		$readSuccess = EAI::File::readText($File, \@{$process->{data}}, $process->{filenames}, $redoDir);
 	}
 	# error when reading files with readFile/readExcel/readXML
 	if (!$readSuccess) {
@@ -525,7 +520,7 @@ sub writeFileFromDB ($) {
 	# get data from database, including column names (passed by ref)
 	@{$DB->{columnnames}} = (); # reset columnnames to pass data back as reference
 	@{$process->{data}} = (); # reset data to pass data back as reference
-	EAI::DB::readFromDB($DB, \@{$process->{data}}) or do {
+	EAI::DB::readFromDB($DB,\@{$process->{data}}) or do {
 		$logger->error("couldn' read from DB");
 		return 0;
 	};
@@ -537,7 +532,7 @@ sub writeFileFromDB ($) {
 		eval $DB->{postReadProcessing};
 		$logger->error("error doing postReadProcessing: ".$DB->{postReadProcessing}.": ".$@) if ($@);
 	}
-	EAI::File::writeText($File,$process) or do {
+	EAI::File::writeText($File,\@{$process->{data}}) or do {
 		$logger->error("error creating/writing file");
 		return 0;
 	};
@@ -1017,7 +1012,7 @@ redo file from redo directory if specified (C<$common{task}{redoFile}> is being 
 
 =item getLocalFiles
 
-get local file(s) from source into homedir and extract archives if needed, uses C<$File-E<gt>{filename}>, C<$File-E<gt>{extension}> and C<$File-E<gt>{avoidRenameForRedo}>. Arguments are fetched from common or loads[i], using File parameter.
+get local file(s) from source into homedir, uses C<$File-E<gt>{filename}>, C<$File-E<gt>{extension}> and C<$File-E<gt>{avoidRenameForRedo}>. Arguments are fetched from common or loads[i], using File parameter.
 
 =item getFilesFromFTP
 
@@ -1029,7 +1024,7 @@ combines above two procedures in a general procedure to get files from FTP or lo
 
 =item checkFiles
 
-check files for continuation of processing. Arguments are fetched from common or loads[i], using File parameter. The processed files are put into process->{filenames}
+check files for continuation of processing and extract archives if needed. Arguments are fetched from common or loads[i], using File parameter. The processed files are put into process->{filenames}
 
 =item extractArchives
 
@@ -1445,10 +1440,6 @@ if up- or downloaded file should not be moved into historyFolder but be kept in 
 
 flag to specify whether empty files should not invoke an error message. Also needed to mark an empty file as processed in EAI::Wrap::markProcessed
 
-=item encoding
-
-text encoding of the file in question (e.g. :encoding(utf8))
-
 =item extract
 
 flag to specify whether to extract files from archive package (zip)
@@ -1484,6 +1475,14 @@ numeric array of columns that contain date values (special parsing) in excel fil
 =item format_decimalsep
 
 decimal separator used in numbers of sourcefile (defaults to . if not given)
+
+=item format_defaultsep
+
+default separator when format_sep not given (usually in site.config), if not given, "\t" is used as default.
+
+=item format_encoding
+
+text encoding of the file in question (e.g. :encoding(utf8))
 
 =item format_headerColumns
 

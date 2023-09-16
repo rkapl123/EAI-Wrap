@@ -1,11 +1,11 @@
+use strict; use feature 'unicode_strings';
 # enter new version to update all modules with
 print "new version (empty to skip):";
-$newVersion = <STDIN>;
+my $newVersion = <STDIN>;
 chomp $newVersion;
 # used for CONFIGURATION REFERENCE, fetches comments from %hashCheck in Common.pm and translates them to pod =items
 open (COMMONFILE, "<".'lib\EAI\Common.pm') or die ('can\'t open lib\EAI\Common.pm for reading');
-my $insertIntoEAIWrap;
-my $return;
+my $insertIntoEAIWrap; my $return; my $startParsing;
 while (<COMMONFILE>){
 	if (/my %hashCheck = \(/) {
 		$startParsing = 1;

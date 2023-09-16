@@ -35,12 +35,12 @@ unless (my $return = eval $siteCONFIGFILE) {
 
 # 1
 my ($ftpHandle, $ftpHost);
-login({remoteHost => {Prod => "unknown", Test => "unknown"},maxConnectionTries => 2,FTPdebugLevel => 0,user => "unknown", pwd => "unknown"},{env => "Test"});
+login({maxConnectionTries => 2,FTPdebugLevel => 0,user => "unknown", pwd => "unknown"},"unknown");
 ($ftpHandle, $ftpHost) = getHandle();
 ok(!defined($ftpHandle),"expected login failure");
 
 # 2
-login({remoteHost => {Prod => "127.0.0.1",Test => "127.0.0.1"},maxConnectionTries => 2,FTPdebugLevel => 0,user => $config{sensitive}{ftp}{user}, pwd => $config{sensitive}{ftp}{pwd}},{env => "Test"});
+login({maxConnectionTries => 2,FTPdebugLevel => 0,user => $config{sensitive}{ftp}{user}, pwd => $config{sensitive}{ftp}{pwd}},"127.0.0.1");
 ($ftpHandle, $ftpHost) = getHandle();
 ok(defined($ftpHandle) && $ftpHost eq "127.0.0.1","login success");
 setHandle($ftpHandle) or print "error: $@";
@@ -72,14 +72,14 @@ ok($fileMoved[0] eq "test.txt","test.txt renamed temp file");
 
 # 7
 my @retrieved;
-fetchFiles({remoteDir => "",localDir => "."},{retrievedFiles=>\@retrieved},{fileToRetrieve => "test.txt"});
+fetchFiles({remoteDir => "",localDir => "."},{fileToRetrieve => "test.txt",retrievedFiles=>\@retrieved});
 ok($retrieved[0] eq "test.txt","retrieved file in returned array");
 # 8
 file_contains_like("test.txt",qr/$filecontent/,"test.txt downloaded file");
 
 # 9
 my @retrieved2;
-fetchFiles({remoteDir => "",localDir => "."},{retrievedFiles=>\@retrieved2},{fileToRetrieve => "relativepath/*.txt"});
+fetchFiles({remoteDir => "",localDir => "."},{fileToRetrieve => "relativepath/*.txt",retrievedFiles=>\@retrieved2});
 ok($retrieved2[0] eq "temp.test.txt","retrieved file in returned array");
 # 10
 ok($retrieved2[1] eq "test.txt","retrieved file in returned array");

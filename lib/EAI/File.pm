@@ -1,39 +1,43 @@
-package EAI::File 0.3;
+package EAI::File 0.4;
 
-use strict;
+use strict; use feature 'unicode_strings';
 use Text::CSV; use Data::XLSX::Parser; use Spreadsheet::ParseExcel; use Spreadsheet::WriteExcel; use Excel::Writer::XLSX; use Data::Dumper; use XML::LibXML; use XML::LibXML::Debugging;
-use Encode; use Cwd; use Log::Log4perl qw(get_logger); use Time::localtime; use Scalar::Util qw(looks_like_number); use EAI::DateUtil;
+use Cwd; use Log::Log4perl qw(get_logger); use Time::localtime; use Scalar::Util qw(looks_like_number); use EAI::DateUtil;
 use Exporter;
 our @ISA = qw(Exporter);
 our @EXPORT = qw(readText readExcel readXML writeText writeExcel);
 
-# get common read procedure parameters, used in readText, readExcel and readXML
-sub getcommon {
-	my ($File, $process, $lineProcessing, $fieldProcessing, $firstLineProc, $thousandsep, $decimalsep) = @_;
+# get common read procedure parameters from $File config, used in readText, readExcel and readXML
+sub getcommon ($) {
+	my ($File) = @_;
 	my $lineProcessing = $File->{lineCode};
 	my $fieldProcessing = $File->{fieldCode};
 	my $firstLineProc = $File->{firstLineProc};
 	my $thousandsep = "\\".$File->{format_thousandsep}; # add backslash to quote thousandsep for regexp (in case it is a ".")
 	my $decimalsep = "\\".$File->{format_decimalsep}; # add backslash to quote decimalsep for regexp (in case it is a ".")
-	get_logger()->debug("lineProcessing: $lineProcessing\nfieldProcessing: $fieldProcessing\nfirstLineProc:$firstLineProc\nthousandsep:$thousandsep\ndecimalsep:$decimalsep");
-	return ($lineProcessing, $fieldProcessing, $firstLineProc, $thousandsep, $decimalsep);
+	my $skip = $File->{format_skip} if $File->{format_skip};
+	my $sep = $File->{format_sep} if $File->{format_sep};
+	$sep = $File->{format_defaultsep} if !$sep; # use default if not given
+	$sep = "\t" if !$sep; # use tab also no default
+	my @header = split $sep, $File->{format_header} if $File->{format_header};
+	my @targetheader = split $sep, $File->{format_targetheader} if $File->{format_targetheader};
+	get_logger()->debug("\$lineProcessing:$lineProcessing\n\$fieldProcessing:$fieldProcessing\n\$firstLineProc:$firstLineProc\n\$thousandsep:$thousandsep\n\$decimalsep:$decimalsep");
+	return ($lineProcessing,$fieldProcessing,$firstLineProc,$thousandsep,$decimalsep,$sep,$skip,\@header,\@targetheader);
 }
 
 # read text files
-sub readText {
-	my ($File, $process, $filenames, $redoSubDir) = @_;
+sub readText ($$$;$) {
+	my ($File,$data,$filenames,$redoSubDir) = @_;
 	my $logger = get_logger();
-	my ($lineProcessing, $fieldProcessing, $firstLineProc, $thousandsep, $decimalsep) = getcommon($File, $process);
 	my @filenames = @{$filenames} if $filenames;
 	if (!@filenames) {
 		$logger->error("no filenames passed");
 		return 0;
 	}
 	# read format configuration
-	my ($poslen, $isFixLen, $skip, $sep); 
-	my (@header, @targetheader);
-	$skip = $File->{format_skip} if $File->{format_skip};
-	$sep = $File->{format_sep} if $File->{format_sep};
+	my ($lineProcessing,$fieldProcessing,$firstLineProc,$thousandsep,$decimalsep,$sep,$skip,$header,$targetheader) = getcommon($File);
+	my @header = @$header; my @targetheader = @$targetheader;
+	my ($poslen, $isFixLen); 
 	my $origsep = $sep;
 	if ($sep =~ /^fix/) {
 		# positions/length definitions from poslen definition: e.g. "format_poslen => [(0,3),(3,3)]"
@@ -46,8 +50,6 @@ sub readText {
 			return 0;
 		}
 	}
-	@header = split $sep, $File->{format_header} if $File->{format_header};
-	@targetheader = split $sep, $File->{format_targetheader} if $File->{format_targetheader};
 	$Data::Dumper::Terse = 1;
 	$logger->debug("skip:$skip,sep:".Data::Dumper::qquote($origsep).",header:@header\ntargetheader:@targetheader");
 	$Data::Dumper::Terse = 0;
@@ -56,7 +58,7 @@ sub readText {
 	# read all files with same format
 	for my $filename (@filenames) {
 		$logger->debug("reading $redoSubDir$filename");
-		open (FILE, "<".$File->{encoding}, $redoSubDir.$filename) or do { #
+		open (FILE, "<".$File->{format_encoding}, $redoSubDir.$filename) or do { #
 			if (! -e $redoSubDir.$filename) {
 				$logger->error("no file $redoSubDir$filename to process...") unless ($File->{optional});
 				$logger->warn("no file $redoSubDir$filename found... ");
@@ -76,7 +78,7 @@ sub readText {
 			my $newRecSep;
 			if ($File->{format_allowLinefeedInData}) {
 				# enable binmode and set line record separator to CRLF, so line feeds in values don't create artificial new lines/records
-				binmode(FILE, ":raw".$File->{encoding}); # raw so not to swallow CRLF
+				binmode(FILE, ":raw".$File->{format_encoding}); # raw so not to swallow CRLF
 				$newRecSep = "\015\012";
 				$logger->debug("binmode");
 			}
@@ -87,7 +89,6 @@ sub readText {
 			$logger->debug("starting reading file $redoSubDir$filename ... ");
 			if ($firstLineProc) {
 				$_ = <FILE>;
-				$_ = encode('cp1252', $_) if $File->{encoding};
 				eval $firstLineProc;
 				$logger->error("eval firstLineProc: ".$firstLineProc.$@) if ($@);
 				$logger->debug("evaled: ".$firstLineProc);
@@ -100,7 +101,6 @@ sub readText {
 					for (1 .. $skip) {$_ = <FILE>};
 				} else {
 					while (<FILE>) {
-						$_ = encode('cp1252', $_) if $File->{encoding};
 						last if /$skip/;
 					}
 				}
@@ -111,7 +111,6 @@ sub readText {
 			my (@line,@previousline);
 LINE:
 			while (<FILE>) {
-				$_ = encode('cp1252', $_) if $File->{encoding};
 				chomp;
 				# in case lineProcessing or addtlProcessing needs access to whole row -> $rawline
 				my $rawline = $_;
@@ -136,17 +135,17 @@ LINE:
 				}
 				$lineno++;
 				next LINE if $line[0] eq "" and !$lineProcessing;
-				readRow($process,\@line,\@previousline,\@header,\@targetheader,$rawline,$lineProcessing,$fieldProcessing,$thousandsep,$decimalsep,$lineno);
+				readRow($data,\@line,\@previousline,\@header,\@targetheader,$rawline,$lineProcessing,$fieldProcessing,$thousandsep,$decimalsep,$lineno);
 			}
 		}
 		close FILE;
-		if (!$process->{data} and !$File->{emptyOK}) {
+		if (!$data and !$File->{emptyOK}) {
 			$logger->error("no data retrieved from file: $filename");
 			return 0;
 		}
 	}
-	$logger->trace("amount of rows:".scalar(@{$process->{data}})) if $logger->is_trace and $process->{data};
-	$logger->trace(Dumper($process->{data})) if $logger->is_trace;
+	$logger->trace("amount of rows:".scalar(@{$data})) if $logger->is_trace and $data;
+	$logger->trace(Dumper($data)) if $logger->is_trace;
 	return 1;
 }
 
@@ -224,26 +223,28 @@ sub row_handlerXLSX {
 }
 
 # read Excel file (format depends on setting)
-sub readExcel {
-	my ($File, $process, $filenames, $redoSubDir) = @_;
+sub readExcel ($$$;$) {
+	my ($File,$data,$filenames,$redoSubDir) = @_;
 	my $logger = get_logger();
 	$stopOnEmptyValueColumn = $File->{format_stopOnEmptyValueColumn};
 	$stoppedOnEmptyValue = 0; # reset
-	my ($lineProcessing, $fieldProcessing, $firstLineProc, $thousandsep, $decimalsep) = getcommon($File, $process);
 	my @filenames = @{$filenames} if $filenames;
-
+	if (!@filenames) {
+		$logger->error("no filenames passed");
+		return 0;
+	}
 	# reset module global variables
 	undef %dateColumn;
 	undef %headerColumn;
 
 	# read format configuration
-	my (@header, @targetheader);
-	my $sep = $File->{format_sep} if $File->{format_sep};
-	$sep = "\t" if !$sep;
-	$logger->error("no targetheader defined") if !$File->{format_targetheader}; # targetheader has to be given
-	@header = split $sep, $File->{format_header} if $File->{format_header}; # excel source header optional
-	@targetheader = split $sep, $File->{format_targetheader} if $File->{format_targetheader};
-	$logger->debug("skip: ". $File->{format_skip}."headerskip: ". $File->{format_headerskip}.", header: @header \ntargetheader: @targetheader\ndateColumns: ".($File->{format_dateColumns} ? @{$File->{format_dateColumns}} : "")."\nheaderColumns: ".($File->{format_headerColumns} ? @{$File->{format_headerColumns}} : ""));
+	my ($lineProcessing,$fieldProcessing,$firstLineProc,$thousandsep,$decimalsep,$sep,$skip,$header,$targetheader) = getcommon($File);
+	my @header = @$header; my @targetheader = @$targetheader;
+	if (!@targetheader) {
+		$logger->error("no targetheader defined"); # targetheader has to be given, excel source header (@header) optional
+		return 0;
+	}
+	$logger->debug("skip: $skip,headerskip: ". $File->{format_headerskip}.", header: @header \ntargetheader: @targetheader\ndateColumns: ".($File->{format_dateColumns} ? @{$File->{format_dateColumns}} : "")."\nheaderColumns: ".($File->{format_headerColumns} ? @{$File->{format_headerColumns}} : ""));
 	# prepare dateColumn definition if needed/given
 	if ($File->{format_dateColumns} and ref($File->{format_dateColumns}) eq "ARRAY") {
 		for my $col (@{$File->{format_dateColumns}}) {
@@ -371,33 +372,35 @@ LINE:
 					$line[$i] = $dataRows{$lineno}{$i+1};
 				}
 			}
-			readRow($process,\@line,\@previousline,\@header,\@targetheader,undef,$lineProcessing,$fieldProcessing,$thousandsep,$decimalsep,$lineno);
+			readRow($data,\@line,\@previousline,\@header,\@targetheader,undef,$lineProcessing,$fieldProcessing,$thousandsep,$decimalsep,$lineno);
 		}
 		close FILE;
-		if (scalar(@{$process->{data}}) == 0 and !$File->{emptyOK}) {
+		if (scalar(@{$data}) == 0 and !$File->{emptyOK}) {
 			$logger->error("Empty file: $filename, no data returned !!");
 			return 0;
 		}
 	}
-	$logger->trace("amount of rows: ".scalar(@{$process->{data}})) if $logger->is_trace;
-	$logger->trace(Dumper($process->{data})) if $logger->is_trace;
+	$logger->trace("amount of rows: ".scalar(@{$data})) if $logger->is_trace;
+	$logger->trace(Dumper($data)) if $logger->is_trace;
 	return 1;
 }
 
 # read XML file
-sub readXML {
-	my ($File, $process, $filenames, $redoSubDir) = @_;
+sub readXML ($$$;$) {
+	my ($File,$data,$filenames,$redoSubDir) = @_;
 	my $logger = get_logger();
-	my ($lineProcessing, $fieldProcessing, $firstLineProc, $thousandsep, $decimalsep) = getcommon($File, $process);
 	my @filenames = @{$filenames} if $filenames;
-
+	if (!@filenames) {
+		$logger->error("no filenames passed");
+		return 0;
+	}
 	# read format configuration
-	my (@header, @targetheader);
-	my $sep = $File->{format_sep};
-	$sep = "\t" if !$sep;
-	$logger->error("no header defined") if !$File->{format_header};
-	@header = split $sep, $File->{format_header};
-	@targetheader = split $sep, $File->{format_targetheader} if $File->{format_targetheader};
+	my ($lineProcessing,$fieldProcessing,$firstLineProc,$thousandsep,$decimalsep,$sep,$skip,$header,$targetheader) = getcommon($File);
+	my @header = @$header; my @targetheader = @$targetheader;
+	if (!@header) {
+		$logger->error("no header defined"); # targetheader has to be given, excel source header (@header) optional
+		return 0;
+	}
 	$Data::Dumper::Terse = 1;
 	$logger->debug("sep:".Data::Dumper::qquote($sep).",header:@header\ntargetheader:@targetheader");
 	$Data::Dumper::Terse = 0;
@@ -406,7 +409,7 @@ sub readXML {
 	# read all files with same format
 	for my $filename (@filenames) {
 		if (! -e $redoSubDir.$filename) {
-			$logger->error("no XML file ($filename) to process") unless ($File->{optional});
+			$logger->error("no XML file ($redoSubDir$filename) found to process") unless ($File->{optional});
 			$logger->warn("file $redoSubDir$filename not found");
 			return 0;
 		}
@@ -447,9 +450,9 @@ sub readXML {
 				}
 			}
 			$lineno++;
-			readRow($process,\@line,\@previousline,\@header,\@targetheader,undef,$lineProcessing,$fieldProcessing,$thousandsep,$decimalsep,$lineno);
+			readRow($data,\@line,\@previousline,\@header,\@targetheader,undef,$lineProcessing,$fieldProcessing,$thousandsep,$decimalsep,$lineno);
 		}
-		if (!$process->{data} and !$File->{emptyOK}) {
+		if (!$data and !$File->{emptyOK}) {
 			$logger->error("empty file: $filename, no data returned");
 			return 0;
 		}
@@ -458,8 +461,8 @@ sub readXML {
 }
 
 # read row into final line hash (including special "hook" code)
-sub readRow {
-	my ($process,$line,$previousline,$header,$targetheader,$rawline,$lineProcessing,$fieldProcessing,$thousandsep,$decimalsep,$lineno) = @_;
+sub readRow ($$$$$$$$$$$) {
+	my ($data,$line,$previousline,$header,$targetheader,$rawline,$lineProcessing,$fieldProcessing,$thousandsep,$decimalsep,$lineno) = @_;
 	my @line = @$line;
 	my @previousline = @$previousline;
 	my @header = @$header;
@@ -473,6 +476,7 @@ sub readRow {
 	our $skipLineAssignment = 0; # can be set in fieldCode, to avoid further assignment to data.
 	# iterate through fields of current row
 	for (my $i = 0; $i < @line; $i++) {
+		#$logger->trace("field:$i, content:$line[$i]") if $logger->is_trace;
 		# first trim leading and trailing spaces
 		$line[$i] =~ s/^ *//;
 		$line[$i] =~ s/ *$//;
@@ -496,7 +500,6 @@ sub readRow {
 		# field specific processing set, augments processing for a single specific field specified by targetheader...
 		if ($fieldProcessing->{$targetheader[$i]}) {
 			$logger->trace('BEFORE: $targetheader['.$i.']:'.$targetheader[$i].',$line{'.$targetheader[$i].']:'.$line{$targetheader[$i]}.',fieldProcessing{',$targetheader[$i],'}:'.$fieldProcessing->{$targetheader[$i]}) if $logger->is_trace;
-
 			eval $fieldProcessing->{$targetheader[$i]};
 			$logger->error('eval fieldProcessing->{',$targetheader[$i],'}: '.$fieldProcessing->{$targetheader[$i]}.$@) if ($@);
 			$logger->trace('AFTER: $targetheader['.$i.']:'.$targetheader[$i].',$line{'.$targetheader[$i].']:'.$line{$targetheader[$i]}.",\$skipLineAssignment: $skipLineAssignment, line: $lineno") if $logger->is_trace;
@@ -519,18 +522,17 @@ sub readRow {
 		}
 	}
 	$logger->trace("line:\n".Dumper(\%line)) if $logger->is_trace and !$skipLineAssignment;
-	push @{$process->{data}}, \%line if %line and !$skipLineAssignment;
+	push @{$data}, \%line if %line and !$skipLineAssignment;
 }
 
 # write text file
-sub writeText {
-	my ($File, $process) = @_;
+sub writeText ($$) {
+	my ($File,$data) = @_;
 	my $logger = get_logger();
 	
 	my $filename = $File->{filename};
-	my $data = $process->{data};
 	if (ref($data) ne 'ARRAY') {
-		$logger->error("passed data in \$process is not a ref to array:".Dumper($process));
+		$logger->error("passed data in \$data is not a ref to array:".Dumper($data));
 		return 0;
 	}
 	# in case we need to print out csv/quoted values
@@ -580,7 +582,7 @@ sub writeText {
 	}
 	# open file for writing
 	$logger->debug("writing to ".$filename);
-	open (FHOUT, ">".$File->{encoding},$filename) or do {
+	open (FHOUT, ">".$File->{format_encoding},$filename) or do {
 		$logger->error("file creation error: $!");
 		return 0;
 	};
@@ -608,7 +610,7 @@ sub writeText {
 		for my $colname (@columnnames) {
 			if (!$File->{columnskip}{$colname}) {
 				if (ref($row) ne "HASH") {
-					$logger->error("row passed in (\$process->{data}) is no ref to hash! should be \$VAR1 = {'key' => 'value', ...}:\n".Dumper($row));
+					$logger->error("row passed in (\$data) is no ref to hash! should be \$VAR1 = {'key' => 'value', ...}:\n".Dumper($row));
 					return 0;
 				}
 				my $value = $row->{$colname};
@@ -648,13 +650,12 @@ sub writeText {
 }
 
 # write Excel file
-sub writeExcel {
-	my ($File, $process) = @_;
+sub writeExcel ($$) {
+	my ($File,$data) = @_;
 	my $logger = get_logger();
 	
-	my $data = $process->{data};
 	if (ref($data) ne 'ARRAY') {
-		$logger->error("passed data in \$process is not a ref to array:".Dumper($process));
+		$logger->error("passed data in \$data is not a ref to array:".Dumper($data));
 		return 0;
 	}
 
@@ -709,7 +710,7 @@ sub writeExcel {
 		# chain all data in a row
 		for my $colname (@columnnames) {
 			if (!$File->{columnskip}{$colname}) {
-				$logger->error("row passed in (\$process->{data}) is no ref to hash! should be \$VAR1 = {'key' => 'value', ...}:\n".Dumper($row)) if (ref($row) ne "HASH");
+				$logger->error("row passed in (\$data) is no ref to hash! should be \$VAR1 = {'key' => 'value', ...}:\n".Dumper($row)) if (ref($row) ne "HASH");
 				my $value = $row->{$colname};
 				$logger->trace("\$value for \$colname $colname: $value") if $logger->is_trace;
 				if ($File->{addtlProcessingTrigger} && $File->{addtlProcessing}) {
@@ -736,11 +737,11 @@ EAI::File - read/parse Files from the filesystem or write to the filesystem
 
 =head1 SYNOPSIS
 
- readText ($File, $process, $filenames)
- readExcel ($File, $process, $filenames)
- readXML ($File, $process, $filenames)
- writeText ($File, $process)
- writeExcel ($File, $process)
+ readText ($File, $data, $filenames)
+ readExcel ($File, $data, $filenames)
+ readXML ($File, $data, $filenames)
+ writeText ($File, $data)
+ writeExcel ($File, $data)
 
 =head1 DESCRIPTION
 
@@ -755,38 +756,38 @@ EAI::File contains all file parsing API-calls. This is for reading plain text da
 reads the defined text file with specified parameters into array of hashes (DB ready structure)
 
  $File      .. hash ref for File specific configuration
- $process   .. hash ref for process specific configuration and returned data (hashkey "data" -> above mentioned array of hashes)
- $filenames .. array of file names, if explizit (given in case of mget and unpacked zip archives).
+ $data      .. hash ref for returned data (hashkey "data" -> above mentioned array of hashes)
+ $filenames .. array of file names, if explicit (given in case of mget and unpacked zip archives).
 
 =item readExcel
 
 reads the defined excel file with specified parameters into array of hashes (DB ready structure)
 
  $File      .. hash ref for File specific configuration
- $process   .. hash ref for process specific configuration and returned data (hashkey "data" -> above mentioned array of hashes)
- $filenames .. array of file names, if explizit (given in case of mget and unpacked zip archives).
+ $data      .. hash ref for returned data (hashkey "data" -> above mentioned array of hashes)
+ $filenames .. array of file names, if explicit (given in case of mget and unpacked zip archives).
 
 =item readXML
 
 reads the defined XML file with specified parameters into array of hashes (DB ready structure)
 
  $File      .. hash ref for File specific configuration
- $process   .. hash ref for process specific configuration and returned data (hashkey "data" -> above mentioned array of hashes)
- $filenames .. Array von filenamen, falls explizit array of file names, if explizit (given in case of mget and unpacked zip archives).
+ $data      .. hash ref for returned data (hashkey "data" -> above mentioned array of hashes)
+ $filenames .. array of filenamea, if explicit (given in case of mget and unpacked zip archives).
 
 =item writeText
 
 writes a text file using specified parameters from array of hashes (DB structure) 
 
  $File      .. hash ref for File specific configuration
- $process   .. hash ref for process specific configuration and returned data (hashkey "data" -> above mentioned array of hashes)
+ $data      .. hash ref for returned data (hashkey "data" -> above mentioned array of hashes)
 
 =item writeExcel
 
 writes an excel file using specified parameters from array of hashes (DB structure) 
 
  $File      .. hash ref for File specific configuration
- $process   .. hash ref for process specific configuration and returned data (hashkey "data" -> above mentioned array of hashes)
+ $data      .. hash ref for returned data (hashkey "data" -> above mentioned array of hashes)
 
 =back
 

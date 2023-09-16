@@ -1,6 +1,6 @@
-package EAI::Common 0.3;
+package EAI::Common 0.4;
 
-use strict;
+use strict; use feature 'unicode_strings';
 use Exporter; use Log::Log4perl qw(get_logger); use EAI::DateUtil; use Data::Dumper; use Getopt::Long qw(:config no_ignore_case); use Scalar::Util qw(looks_like_number);
 # to make use of colored logs with Log::Log4perl::Appender::ScreenColoredLevels on windows we have to use that (special "use" to make this optional on non-win environments)
 BEGIN {
@@ -115,7 +115,6 @@ my %hashCheck = (
 		dontKeepHistory => 1, # if up- or downloaded file should not be moved into historyFolder but be deleted
 		dontMoveIntoHistory => 1, # if up- or downloaded file should not be moved into historyFolder but be kept in homedir
 		emptyOK => 0, # flag to specify whether empty files should not invoke an error message. Also needed to mark an empty file as processed in EAI::Wrap::markProcessed
-		encoding => "", # text encoding of the file in question (e.g. :encoding(utf8))
 		extract => 1, # flag to specify whether to extract files from archive package (zip)
 		extension => "", # the extension of the file to be read (optional, used for redoFile)
 		fieldCode => {}, # additional field based processing code: fieldCode => {field1 => 'perl code', ..}, invoked if key equals either header (as in format_header) or targetheader (as in format_targetheader) or invoked for all fields if key is empty {"" => 'perl code'}. set $skipLineAssignment to true (1) if current line should be skipped from data.
@@ -125,6 +124,8 @@ my %hashCheck = (
 		format_beforeHeader => "", # additional String to be written before the header in write text
 		format_dateColumns => [], # numeric array of columns that contain date values (special parsing) in excel files
 		format_decimalsep => "", # decimal separator used in numbers of sourcefile (defaults to . if not given)
+		format_defaultsep => "", # default separator when format_sep not given (usually in site.config), if not given, "\t" is used as default.
+		format_encoding => "", # text encoding of the file in question (e.g. :encoding(utf8))
 		format_headerColumns => [], # optional numeric array of columns that contain data in excel files (defaults to all columns starting with first column up to format_targetheader length)
 		format_header => "", # format_sep separated string containing header fields (optional in excel files, only used to check against existing header row)
 		format_headerskip => 1, # skip until row-number for checking header row against format_header in excel files
@@ -297,14 +298,15 @@ sub setupConfigMerge {
 		$loads[$i]={DB=>{%{$common{DB}},%{$loads[$i]{DB}},%{$optload[$i]{DB}}},FTP=>{%{$common{FTP}},%{$loads[$i]{FTP}},%{$optload[$i]{FTP}}},File=>{%{$common{File}},%{$loads[$i]{File}},%{$optload[$i]{File}}},process=>{%{$common{process}},%{$loads[$i]{process}},%{$optload[$i]{process}}}};
 	}
 	# remove load elements where $common{task}{execOnly} !~ $load->{process}{onlyExecFor}
-	my $i;
-	do {
+	my $i=0;
+	while ($i <= $#loads) {
 		if ($common{task}{execOnly} and $common{task}{execOnly} !~ $loads[$i]{process}{onlyExecFor}) {
-			$logger->debug("removing load $i because \$common{task}{execOnly} given and $common{task}{execOnly} !~ $loads[$i]{process}{onlyExecFor} (\$load{process}{onlyExecFor})");
+			$logger->debug("removing load $i because \$common{task}{execOnly} given and $common{task}{execOnly} !~ $loads[$i]{process}{onlyExecFor} (\$load{process}{onlyExecFor}), \$#loads: $#loads");
 			splice @loads, $i, 1;
+		} else {
+			$i++;
 		}
-		$i++;
-	} while $i <= $#loads;
+	};
 }
 
 # get options for overriding configured settings
@@ -355,7 +357,7 @@ sub getOptions {
 sub extractConfigs ($$$;@) {
 	my ($contextSub,$arg,@required) = @_;
 	my $logger = get_logger();
-	$logger->debug(($contextSub ? $contextSub." for " : "").(caller(1))[3]);
+	$logger->debug(($contextSub ? "setting err subject $contextSub for " : "").(caller(1))[3]);
 	setErrSubject($contextSub) if $contextSub;
 	my @ret;
 	if (ref($arg) eq "HASH") {
@@ -531,6 +533,7 @@ sub checkStartingCond ($) {
 	my ($task) = extractConfigs("checking starting conditions",$arg,"task");
 
 	my $curdate = get_curdate();
+	$logger->debug("checkStartingCond for \$curdate: $curdate, task config:".Dumper($task));
 	# skipHolidays is either a calendar or 1 (then defaults to $task->{skipHolidaysDefault})
 	my $holidayCal = $task->{skipHolidays} if $task->{skipHolidays};
 	# skipForFirstBusinessDate is for "wait with execution for first business date", either this is a calendar or 1 (then calendar is skipHolidaysDefault), this cannot be used together with skipHolidays
@@ -555,6 +558,7 @@ sub checkStartingCond ($) {
 		for (1..$daysfrom1st) {
 			$nonBusinessDays += (is_weekend(subtractDays($curdate,$_)) or is_holiday($holidayCal,subtractDays($curdate,$_)));
 		}
+		$logger->debug("\$nonBusinessDays: $nonBusinessDays,\$daysfrom1st: $daysfrom1st");
 		if ($nonBusinessDays < $daysfrom1st) {
 			$logger->info("skip processing (skipForFirstBusinessDate = ".$task->{skipForFirstBusinessDate}.") as processing already took place on a business day before $curdate!");
 			return 1;
@@ -612,6 +616,27 @@ sub sendGeneralMail ($$$$$$;$$$$) {
 		$logger->trace("sent message: ".$msg->as_string) if $logger->is_trace();
 	}
 }
+
+package Log::Dispatch::Email::LogSender;
+ 
+use Log::Dispatch::Email;
+use base qw( Log::Dispatch::Email );
+ 
+sub send_email {
+	my $self = shift;
+	my %p    = @_;
+	# catch wide non utf8 characters to avoid die in MIME::Lite
+	eval {decode('UTF-8',$p{message},$Encode::FB_CROAK )} or $p{message} =~ s/[^\x00-\x7f]/?/g;
+	my $msg = MIME::Lite->new(
+			From    => $self->{from},
+			To      => ( join ',', @{ $self->{to} } ),
+			Subject => $self->{subject},
+			Type    => "TEXT",
+			Data    => $p{message},
+		);
+	$msg->send('smtp', $config{smtpServer}, AuthUser=>$config{smtpAuth}{user}, AuthPass=>$config{smtpAuth}{pwd});
+}
+
 1;
 __END__
 

@@ -1,6 +1,6 @@
-package EAI::FTP 0.3;
+package EAI::FTP 0.4;
 
-use strict;
+use strict; use feature 'unicode_strings';
 use Net::SFTP::Foreign; use Net::SFTP::Foreign::Constants qw( SFTP_ERR_LOCAL_UTIME_FAILED ); use Net::FTP; use Text::Glob qw( match_glob);
 use Scalar::Util 'blessed'; use Fcntl ':mode'; # for S_ISREG check in removeFilesOlderX
 use Log::Log4perl qw(get_logger); use File::Temp; use Time::Local; use Time::localtime; use Exporter; use Data::Dumper;
@@ -173,10 +173,10 @@ sub removeFilesOlderX ($) {
 }
 
 # fetch files from FTP server
-sub fetchFiles ($$$) {
-	my ($FTP,$execute,$param) = @_;
+sub fetchFiles ($$) {
+	my ($FTP,$param) = @_;
 	my $logger = get_logger();
-	my $suppressGetError = $execute->{firstRunSuccess};
+	my $suppressGetError = $param->{firstRunSuccess};
 	my $queue_size = $FTP->{queue_size};
 	$queue_size = 1 if !$queue_size; # queue_size bigger 1 causes often connection issues
 	if (defined $ftp) {
@@ -185,7 +185,7 @@ sub fetchFiles ($$$) {
 		my $remoteDir = (substr($FTP->{remoteDir},0,1) eq "/" ? substr($FTP->{remoteDir},1) : $FTP->{remoteDir});
 		if (_setcwd($remoteDir)) {
 			my $remoteFile = ($FTP->{path} ? $FTP->{path}."/" : "").$param->{fileToRetrieve};
-			my $localPath = ($FTP->{localDir} ? $FTP->{localDir} : $execute->{homedir});
+			my $localPath = ($FTP->{localDir} ? $FTP->{localDir} : $param->{homedir});
 			$localPath .= "/" if $localPath !~ /.*[\/\\]$/;
 			my $localFile = $localPath.$param->{fileToRetrieve};
 			if ($remoteFile =~ /\*/) { # if there is a glob character then glob and do multiple get !
@@ -193,13 +193,13 @@ sub fetchFiles ($$$) {
 				my @multipleRemoteFiles = _glob($remoteFile); # list retrieved files (including potential path) for fetching
 				my @multipleFiles = _glob($remoteFile, 1); # list retrieved files (without path) for later processing
 				$logger->debug("glob $remoteFile returned @multipleFiles");
-				@{$execute->{retrievedFiles}} = @multipleFiles;
+				@{$param->{retrievedFiles}} = @multipleFiles;
 				for (my $i = 0; $i < @multipleFiles; $i++) {
 					$logger->debug("fetching file ".$multipleRemoteFiles[$i]);
 					_get($multipleRemoteFiles[$i], $localPath.$multipleFiles[$i], $queue_size) or do {
 						unless (_error() == SFTP_ERR_LOCAL_UTIME_FAILED || $suppressGetError) {
 							$logger->error("error: can't get remote-file ".$multipleRemoteFiles[$i]." from glob $remoteFile, reason: "._error().", status: "._status());
-							@{$execute->{retrievedFiles}} = ();
+							@{$param->{retrievedFiles}} = ();
 							return 0;
 						}
 					};
@@ -209,13 +209,13 @@ sub fetchFiles ($$$) {
 				$logger->info("fetching file $remoteFile");
 				my $mod_time = _mtime($remoteFile);
 				$logger->debug("get file $remoteFile");
-				@{$execute->{retrievedFiles}} = ($param->{fileToRetrieve});
+				@{$param->{retrievedFiles}} = ($param->{fileToRetrieve});
 				_get($remoteFile, $localFile, $queue_size) or do { 
 					$logger->debug("ftp_get returned error: "._error().", status:"._status());
 					if (!$param->{fileToRetrieveOptional} and !$FTP->{fileToRemove}) { # ignore errors for a file that was either removed or is optional
 						unless (_error() == SFTP_ERR_LOCAL_UTIME_FAILED || $suppressGetError) {
 							$logger->error("can't get remote-file $remoteFile, reason: "._error().", status: "._status());
-							@{$execute->{retrievedFiles}} = ();
+							@{$param->{retrievedFiles}} = ();
 							return 0;
 						}
 					}
@@ -404,17 +404,17 @@ sub removeFiles ($) {
 
 # login, creating a new ftp connection
 sub login ($$) {
-	my ($FTP,$execute) = @_;
+	my ($FTP,$setRemoteHost) = @_;
 	my $logger = get_logger();
-	if ($RemoteHost ne $FTP->{remoteHost}{$execute->{env}} or !defined($ftp)) {
-		$RemoteHost = $FTP->{remoteHost}{$execute->{env}};
+	if ($RemoteHost ne $setRemoteHost or !defined($ftp)) {
+		$RemoteHost = $setRemoteHost;
 		undef $ftp if defined($ftp); # close ftp connection if open.
 	} else {
 		$logger->debug("ftp connection already open, using $RemoteHost");
 		return 1;
 	}
 	(!$RemoteHost) and do {
-		$logger->error("remote host not set in \$FTP->{remoteHost}{$execute->{env}}");
+		$logger->error("no existing connection and remote host not set in \$setRemoteHost for new connection");
 		return 0;
 	};
 	my $maxConnectionTries = $FTP->{maxConnectionTries};
@@ -438,7 +438,6 @@ sub login ($$) {
 		push @moreparams, ("-v", "") if $debugLevel;
 		push @moreparams, @{$FTP->{moreparams}} if $FTP->{moreparams} and ref($FTP->{moreparams}) eq "ARRAY";
 		push @moreparams, %{$FTP->{moreparams}} if $FTP->{moreparams} and ref($FTP->{moreparams}) eq "HASH";
-		unlink $execute->{homedir}."/ftperr.log";
 		do {
 			my $ssherr = File::Temp->new or $logger->error("couldn't open temp file for ftperrlog");
 			$logger->debug("connection try: $connectionTries");
@@ -546,11 +545,11 @@ EAI::FTP - wrapper for Net::SFTP::Foreign and Net::FTP
 =head1 SYNOPSIS
 
  removeFilesOlderX ($FTP)
- fetchFiles ($FTP,$execute,$param)
+ fetchFiles ($FTP,$param)
  putFile ($FTP,$param)
  moveTempFile ($FTP,$param)
  archiveFiles ($FTP,$param)
- login ($FTP,$execute)
+ login ($FTP,$setRemoteHost)
  setHandle ($handle,$remoteHost)
  getHandle
 
@@ -582,12 +581,12 @@ fetch files from FTP server
  $param .. ref to hash with function parameters:
  $param->{fileToRetrieve} .. file to retrieve. if a glob (*) is contained, then multiple files are retrieved
  $param->{fileToRetrieveOptional} .. flag that file is optional
+ $param->{firstRunSuccess} .. used to suppress fetching errors (if first run was already successful)
+ $param->{homedir} .. standard storage path
+ $param->{retrievedFiles} .. returned array with retrieved file (or files if glob was given)
+ 
+additionally following parameters from $FTP are important
 
-additionally following parameters from $FTP and $execute are important
-
- $execute->{retrievedFiles} .. returned array with retrieved file (or files if glob was given)
- $execute->{firstRunSuccess} .. used to suppress fetching errors (if first run was already successful)
- $execute->{homedir} .. standard storage path
  $FTP->{queue_size} .. queue_size for Net::SFTP::Foreign, if > 1 this causes often connection issues
  $FTP->{remoteDir} .. remote directory where files are located
  $FTP->{path} .. path of folder of file below remoteDir
@@ -649,7 +648,6 @@ returns 1 if ALL files were deleted successfully, 0 on error (doesn't exit early
 log in to FTP server, stores the handle of the ftp connection
 
  $FTP .. ref to hash with function parameters:
- $FTP->{remoteHost}{Prod => "host", Test => "host",..} .. lookup hash for remote host(s) resolved by $execute->{env}
  $FTP->{maxConnectionTries} ..  maximum number of tries for connecting in login procedure
  $FTP->{sshInstallationPath} .. path were ssh/plink exe to be used by Net::SFTP::Foreign is located
  $FTP->{user} .. for setting user directly
@@ -660,8 +658,7 @@ log in to FTP server, stores the handle of the ftp connection
  $FTP->{privKey} .. sftp key file location for Net::SFTP::Foreign, either directly (insecure -> visible) or via sensitive lookup
  $FTP->{port} .. ftp/sftp port (leave empty for default ports 22 or 21)
  $FTP->{SFTP} .. to explicitly use SFTP, if not given SFTP will be derived from existence of privKey or hostkey. If neither exists, an FTP connection will be opened.
- $execute .. ref to hash with execution environment
- $execute->{env} .. current environment (Prod, Test, Dev...)
+ $setRemoteHost .. remote host to be set
 
 returns 1 if login was successful, 0 on error
 

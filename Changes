@@ -4,3 +4,5 @@
 	- fixed author test 3b_Wrap_Integration.t for automated tests, enhanced 2_File.t with excel format_skip (+ improved logging)
 0.03  Wed Sep 13 23:00:00 2023
 	- completed getConn/setConn in EAI::DB and getHandle/setHandle in in EAI::FTP, added task{redoTimestampPatternPart} for redo improvement, added task{execOnly} and process{onlyExecFor} for selecting specific loads for execution, added checkParam for easier checking required parameters for EAI::Wrap API Calls, moved setting ErrSubject into EAI::Common::extractConfigs
+0.04  Sat Sep 16 12:00:00 2023
+	- refactored DB.pm, FTP.pm and File.pm to decouple from process and execute configs, added Log::Dispatch::Email::LogSender and use instead of Log::Dispatch::Email::MIMELite to fix a Mime:Lite problem with diacritic chars, fixed problems with execOnly/onlyExecFor, added feature unicode_strings, breaking change: renamed File{encoding} to File{format_encoding}, now only being used for reading and writing text files; removed all other encoding code.

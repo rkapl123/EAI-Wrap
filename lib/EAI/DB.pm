@@ -1,6 +1,6 @@
-package EAI::DB 0.3;
+package EAI::DB 0.4;
 
-use strict;
+use strict; use feature 'unicode_strings';
 use DBI qw(:sql_types); use DBD::ODBC; use Data::Dumper; use Log::Log4perl qw(get_logger); use Exporter;
 
 our @ISA = qw(Exporter);
@@ -21,7 +21,7 @@ sub newDBH ($$) {
 		$DSN = $newDSN;
 		$logger->debug("DSN: $DSN");
 		$dbh->disconnect() if defined($dbh);
-		$dbh = DBI->connect("dbi:ODBC:$DSN",undef,undef,{PrintError => 0,RaiseError => 0}) or do {
+		$dbh = DBI->connect("dbi:ODBC:$DSN",undef,undef,{PrintError=>0,RaiseError=>0}) or do {
 			$logger->error("DB connection error:".$DBI::errstr.",DSN:".$DSN);
 			undef $dbh;
 			return 0;
@@ -69,11 +69,11 @@ sub rollback {
 
 # read data into array returned in $data
 sub readFromDB ($$) {
-	my ($param, $data) = @_;
+	my ($DB, $data) = @_;
 	my $logger = get_logger();
-	my $statement = $param->{query};
+	my $statement = $DB->{query};
 	eval {
-		die "no ref to hash argument param given ({query=>''})" if ref($param) ne "HASH";
+		die "no ref to hash argument param given ({query=>''})" if ref($DB) ne "HASH";
 		die "no ref to array argument data (for returning data) given" if ref($data) ne "ARRAY";
 		die "no valid dbh connection available" if !defined($dbh);
 		die "no statement (hashkey query) given" if (!$statement);
@@ -82,7 +82,7 @@ sub readFromDB ($$) {
 		eval {
 			my $sth = $dbh->prepare($statement);
 			$sth->execute;
-			@{$param->{columnnames}} = @{$sth->{NAME}} if $sth->{NAME}; # take field names from the statement handle of query, used for later processing
+			@{$DB->{columnnames}} = @{$sth->{NAME}} if $sth->{NAME}; # take field names from the statement handle of query, used for later processing
 			@$data = @{$sth->fetchall_arrayref({})};
 		};
 		die $@.",DB error: ".$DBI::errstr." executed statement: ".$statement if ($@);
@@ -92,19 +92,19 @@ sub readFromDB ($$) {
 		$logger->error($@);
 		return 0;
 	} else {
-		$logger->trace("columns:".Dumper($param->{columnnames}).",retrieved data:".Dumper($data)) if $logger->is_trace;
+		$logger->trace("columns:".Dumper($DB->{columnnames}).",retrieved data:".Dumper($data)) if $logger->is_trace;
 		return 1;
 	}
 }
 
-# read data into hash using columns $param->{keyfields} as the unique key for the hash (used for lookups), returned in $data
+# read data into hash using columns $DB->{keyfields} as the unique key for the hash (used for lookups), returned in $data
 sub readFromDBHash ($$) {
-	my ($param, $data) = @_;
+	my ($DB, $data) = @_;
 	my $logger = get_logger();
-	my $statement = $param->{query};
-	my @keyfields = $param->{keyfields} if defined($param->{keyfields});
+	my $statement = $DB->{query};
+	my @keyfields = $DB->{keyfields} if defined($DB->{keyfields});
 	eval {
-		die "no ref to hash argument param given ({query=>'',keyfields=>[]})" if ref($param) ne "HASH";
+		die "no ref to hash argument param given ({query=>'',keyfields=>[]})" if ref($DB) ne "HASH";
 		die "no ref to hash argument data (for returning data) given" if ref($data) ne "HASH";
 		die "no valid dbh connection available" if !defined($dbh);
 		die "no statement (hashkey query) given" if (!$statement);
@@ -114,7 +114,7 @@ sub readFromDBHash ($$) {
 		eval {
 			my $sth = $dbh->prepare($statement);
 			$sth->execute;
-			@{$param->{columnnames}} = @{$sth->{NAME}} if $sth->{NAME}; # take field names from the statement handle of query, used for later processing
+			@{$DB->{columnnames}} = @{$sth->{NAME}} if $sth->{NAME}; # take field names from the statement handle of query, used for later processing
 			%$data = %{$sth->fetchall_hashref(@keyfields)};
 		};
 		die $@.",DB error: ".$DBI::errstr." executed statement: ".$statement if ($@);
@@ -124,19 +124,19 @@ sub readFromDBHash ($$) {
 		$logger->error($@);
 		return 0;
 	} else {
-		$logger->trace("columns:".Dumper($param->{columnnames}).",retrieved data:".Dumper($data)) if $logger->is_trace;
+		$logger->trace("columns:".Dumper($DB->{columnnames}).",retrieved data:".Dumper($data)) if $logger->is_trace;
 		return 1;
 	}
 }
 
-# do general statement $param->{doString} in database using optional parameters passed in array ref $param->{parameters}, optionally passing back values in $data
+# do general statement $DB->{doString} in database using optional parameters passed in array ref $DB->{parameters}, optionally passing back values in $data
 sub doInDB ($;$) {
-	my ($param, $data) = @_;
+	my ($DB, $data) = @_;
 	my $logger = get_logger();
-	my $doString = $param->{doString};
-	my @parameters = @{$param->{parameters}} if $param->{parameters};
+	my $doString = $DB->{doString};
+	my @parameters = @{$DB->{parameters}} if $DB->{parameters};
 	eval {
-		die "no param hash argument ({doString=>''}) given" if ref($param) ne "HASH";
+		die "no param hash argument ({doString=>''}) given" if ref($DB) ne "HASH";
 		die "no valid dbh connection available" if !defined($dbh);
 		die "no sql statement doString given" if !$doString;
 		$logger->debug("do in DB: $doString, parameters: @parameters");
@@ -191,7 +191,7 @@ sub storeInDB ($$) {
 		}
 		die "no schemaName available (neither from tablename containing schema nor from parameter schemaName" if !$schemaName;
 		my $colh = $dbh->column_info('', $schemaName, $tableName, "%");
-		my $coldefs = $colh->fetchall_hashref ("COLUMN_NAME");
+		my $coldefs = $colh->fetchall_hashref("COLUMN_NAME");
 		die "no field definitions found for $schemaName.$tableName using DSN $DSN" if scalar(keys %{$coldefs}) == 0; # no more information can be given as column_info is just a select on information store..
 		$logger->trace("coldefs:\n".Dumper($coldefs)) if $logger->is_trace;
 		my %IDName;
@@ -200,7 +200,7 @@ sub storeInDB ($$) {
 			$IDName{$_} = 1 for (keys %{$addID});
 		}
 		my $i=0; my @columns;
-		$logger->trace("type info:\n".Dumper($dbh->type_info("SQL_ALL_TYPES"))) if $logger->is_trace; # all availably data type informations of DBD:ODBC driver
+		$logger->trace("type info:\n".Dumper($dbh->type_info("SQL_ALL_TYPES"))) if $logger->is_trace; # all available data type informations of DBD:ODBC driver
 		for (keys %{$coldefs}) {
 			if ($coldefs->{$_}{"COLUMN_DEF"} =~ /identity/ || $coldefs->{$_}{"TYPE_NAME"} =~ /identity/) { # for identity (auto incrementing) fields no filling needed
 				$logger->trace("TYPE_NAME for identity field ".$_.':'.$coldefs->{$_}{"TYPE_NAME"}) if $logger->is_trace;
@@ -332,6 +332,7 @@ sub storeInDB ($$) {
 					$logger->info("deleting data from $schemaName.$tableName, criteria: $deleteBeforeInsertSelector");
 					my $dostring = "delete from $schemaName.$tableName WHERE $deleteBeforeInsertSelector";
 					my $affectedRows = $dbh->do($dostring) or die $DBI::errstr." with $dostring ".$debugKeyIndicator;
+					$affectedRows =~ s/E0//;
 					# mark deleteBeforeInsertSelector as executed for these data
 					$beforeInsert{$deleteBeforeInsertSelector} = 1;
 					$logger->info("entering data into $schemaName.$tableName after delete before insert, deleted rows: $affectedRows ($DBI::errstr)");
@@ -541,8 +542,6 @@ sub getConn {
 __END__
 
 =head1 NAME
-
-=encoding CP1252
 
 EAI::DB - Database wrapper functions (for DBI / DBD::ODBC)
 

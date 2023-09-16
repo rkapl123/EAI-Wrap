@@ -1,4 +1,4 @@
-package EAI::DateUtil 0.3;
+package EAI::DateUtil 0.4;
 
 use strict;
 use Time::Local; use Time::localtime; use Exporter; use POSIX qw(mktime);
@@ -382,8 +382,6 @@ sub convertEpochToYYYYMMDD ($) {
 }
 1;
 __END__
-
-=encoding CP1252
 
 =head1 NAME
 
