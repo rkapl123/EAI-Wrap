@@ -2,6 +2,9 @@ use strict; use warnings; use Test::More;
 use EAI::DateUtil; use Time::Piece;
 use Test::More tests => 175;
 
+$ENV{TZ} = 'UTC';
+scalar localtime;
+
 my @res = ("20150102","20150105","20150107","20150108","20150109","20150112","20150113","20150114","20150115","20150116","20150119","20150120","20150121","20150122","20150123","20150126","20150127","20150128","20150129","20150130","20150202","20150203","20150204","20150205","20150206","20150209","20150210","20150211","20150212","20150213","20150216","20150217","20150218","20150219","20150220","20150223","20150224","20150225","20150226","20150227","20150302");
 is(get_dateseries("20150102","20150302","AT"),@res,'get_dateseries');
 is(is_weekend("20150102"),"",'is_weekend');
@@ -156,9 +159,9 @@ is(convertToThousendDecimal(0,1),"0",'convertToThousendDecimal 0 without decimal
 is(convertToThousendDecimal(12345.20,1),"12.345",'convertToThousendDecimal decimal without decimal places');
 is(convertToThousendDecimal(-12345.20,1),"-12.345",'convertToThousendDecimal negative decimal without decimal places');
 is(convertToThousendDecimal(-123456789),"-123.456.789,0",'convertToThousendDecimal negative integer');
-is(parseFromDDMMYYYY("01.01.1970"),-3600,'parseFromDDMMYYYY 01.01.1970');
-is(parseFromDDMMYYYY("02.01.1970"),-3600+24*60*60,'parseFromDDMMYYYY 02.01.1970');
-is(parseFromYYYYMMDD("19700102"),-3600+24*60*60,'parseFromYYYYMMDD 19700102');
+is(parseFromDDMMYYYY("01.01.1970"),0,'parseFromDDMMYYYY 01.01.1970');
+is(parseFromDDMMYYYY("02.01.1970"),24*60*60,'parseFromDDMMYYYY 02.01.1970');
+is(parseFromYYYYMMDD("19700102"),24*60*60,'parseFromYYYYMMDD 19700102');
 is((parseFromYYYYMMDD("19700103")-parseFromYYYYMMDD("19700101"))/(24*60*60),2,'diff between 19700103 - 19700101 in days');
 is((parseFromYYYYMMDD("20191104")-parseFromDDMMYYYY("01.11.2019"))/(24*60*60),3,'diff between 20191104 - 01.11.2019 in days');
 is(parseFromYYYYMMDD("19000100"),"invalid date",'expect error with invalid argument (year >= 1900, 1<=month<=12, 1<=day<=31): returns 0');

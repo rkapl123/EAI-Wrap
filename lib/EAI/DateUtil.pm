@@ -1,7 +1,7 @@
 package EAI::DateUtil 0.4;
 
 use strict;
-use Time::Local; use Time::localtime; use Exporter; use POSIX qw(mktime);
+use Time::Local qw( timelocal_modern timegm_modern ); use Time::localtime; use Exporter; use POSIX qw(mktime);
 
 our @ISA = qw(Exporter);
 our @EXPORT = qw(%months %monate get_curdate get_curdatetime get_curdate_dot formatDate formatDateFromYYYYMMDD get_curdate_dash get_curdate_gen get_curdate_dash_plus_X_years get_curtime get_curtime_HHMM get_lastdateYYYYMMDD get_lastdateDDMMYYYY is_first_day_of_month is_last_day_of_month get_last_day_of_month weekday is_weekend is_holiday first_week first_weekYYYYMMDD last_week last_weekYYYYMMDD convertDate convertDateFromMMM convertDateToMMM convertToDDMMYYYY addDays addDaysHol addDatePart subtractDays subtractDaysHol convertcomma convertToThousendDecimal get_dateseries parseFromDDMMYYYY parseFromYYYYMMDD convertEpochToYYYYMMDD);
@@ -65,9 +65,9 @@ sub get_curdate_dash_plus_X_years ($;$$) {
 	if ($year) {
 		my $dateval;
 		if ($daysToSubtract) {
-			$dateval = localtime(timegm(0,0,12,$day,$mon-1,$year)-$daysToSubtract*24*60*60);
+			$dateval = localtime(timegm_modern(0,0,12,$day,$mon-1,$year)-$daysToSubtract*24*60*60);
 		} else {
-			$dateval = localtime(timegm(0,0,12,$day,$mon-1,$year));
+			$dateval = localtime(timegm_modern(0,0,12,$day,$mon-1,$year));
 		}
 		return sprintf("%02d-%02d-%04d",$dateval->mday(), $dateval->mon()+1, $dateval->year()+ 1900 + $y);
 	} else {
@@ -87,7 +87,7 @@ sub get_curtime_HHMM {
 
 sub is_first_day_of_month ($) {
 	my ($y,$m,$d) = $_[0] =~ /(.{4})(..)(..)/;
-	((gmtime(timegm(0,0,12,$d,$m-1,$y)-24*60*60))[4] != $m-1 ? 1 : 0);
+	((gmtime(timegm_modern(0,0,12,$d,$m-1,$y)-24*60*60))[4] != $m-1 ? 1 : 0);
 }
 
 sub is_last_day_of_month ($;$) {
@@ -99,34 +99,34 @@ sub is_last_day_of_month ($;$) {
 		my ($ys,$ms,$ds) = $shiftedDate =~ /(.{4})(..)(..)/;
 		($ms ne $m ? 1 : 0); 
 	} else {
-		((gmtime(timegm(0,0,12,$d,$m-1,$y) + 24*60*60))[4] != $m-1 ? 1 : 0);
+		((gmtime(timegm_modern(0,0,12,$d,$m-1,$y) + 24*60*60))[4] != $m-1 ? 1 : 0);
 	}
 }
 sub get_last_day_of_month ($) {
 	my ($y,$m,$d) = $_[0] =~ /(.{4})(..)(..)/;
 	
-	# first of following month minus 1 day is always last of current month, timegm expects 0 based month, $m is the following month for timegm therefore
+	# first of following month minus 1 day is always last of current month, timegm_modern expects 0 based month, $m is the following month for timegm_modern therefore
 	if ($m == 12) {
 		# for December -> January next year
 		$m = 0; # month 0 based
 		$y++;
 	}
-	my $mon = (gmtime(timegm(0,0,12,1,$m,$y) - 24*60*60))[4]+1;
-	my $day = (gmtime(timegm(0,0,12,1,$m,$y) - 24*60*60))[3];
+	my $mon = (gmtime(timegm_modern(0,0,12,1,$m,$y) - 24*60*60))[4]+1;
+	my $day = (gmtime(timegm_modern(0,0,12,1,$m,$y) - 24*60*60))[3];
 	$y-- if $m == 0; # for December -> reset year again
 	return sprintf("%04d%02d%02d",$y, $mon, $day);
 }
 
 sub weekday ($) {
 	my ($y,$m,$d) = $_[0] =~ /(.{4})(..)(..)/;
-	(gmtime(timegm(0,0,12,$d,$m-1,$y)))[6]+1;
+	(gmtime(timegm_modern(0,0,12,$d,$m-1,$y)))[6]+1;
 }
 
 sub is_weekend ($) {
 	my ($y,$m,$d) = $_[0] =~ /(.{4})(..)(..)/;
-	(gmtime(timegm(0,0,12,$d,$m-1,$y)))[6] =~ /(0|6)/;
+	(gmtime(timegm_modern(0,0,12,$d,$m-1,$y)))[6] =~ /(0|6)/;
 }
-# makeMD: argument in timegm form (datetime), returns date in format DDMM (for holiday calculation)
+# makeMD: argument in timegm_modern form (datetime), returns date in format DDMM (for holiday calculation)
 sub makeMD ($) {
 	sprintf("%02d%02d", (gmtime($_[0]))[3],(gmtime($_[0]))[4] + 1);
 }
@@ -148,7 +148,7 @@ sub is_holiday ($$) {
 					"UK"=>{"0101"=>1,"2512"=>1,"2612"=>1}};
 	# easter, first find easter sunday
 	my $D = (((255 - 11 * ($y % 19)) - 21) % 30) + 21;
-	my $easter = timegm(0,0,12,1,2,$y) + ($D + ($D > 48 ? 1 : 0) + 6 - (($y + int($y / 4) + $D + ($D > 48 ? 1 : 0) + 1) % 7))*86400;
+	my $easter = timegm_modern(0,0,12,1,2,$y) + ($D + ($D > 48 ? 1 : 0) + 6 - (($y + int($y / 4) + $D + ($D > 48 ? 1 : 0) + 1) % 7))*86400;
 	# then the rest
 	my $goodfriday=makeMD($easter-2*86400);
 	my $easterMonday=makeMD($easter+1*86400);
@@ -178,10 +178,10 @@ sub last_week ($$$$;$) {
 		warn("day <$day> is out of range 0 - 6  (sunday==0)");
 		return 0;
 	}
-	my $date = localtime(timelocal(0,0,12,$d,$m-1,$y));
+	my $date = localtime(timelocal_modern(0,0,12,$d,$m-1,$y));
 	return 0 unless $m == $month; # return unless the month matches
 	return 0 unless $date->wday() == $day; # return unless the (week)day matches
-	return 0 unless (localtime(timelocal(0,0,12,$d,$m-1,$y)+7*24*60*60))->mon() != $m-1; # return unless 1 week later we're in a different month
+	return 0 unless (localtime(timelocal_modern(0,0,12,$d,$m-1,$y)+7*24*60*60))->mon() != $m-1; # return unless 1 week later we're in a different month
 	return 1;
 }
 
@@ -199,11 +199,11 @@ sub first_week ($$$$;$) {
 		warn("day <$day> is out of range 0 - 6  (sunday==0)");
 		return 0;
 	}
-	my $date = localtime(timelocal(0,0,12,$d,$m-1,$y));
+	my $date = localtime(timelocal_modern(0,0,12,$d,$m-1,$y));
 	return 0 unless $m == $month; # return unless the month matches
 	return 0 if $d > 7; # can't be the first week of the month if day is after the 7th
 	return 0 unless $date->wday() == $day; # return unless the (week)day matches
-	return 0 unless (localtime(timelocal(0,0,12,$d,$m-1,$y)-7*24*60*60))->mon() != $m-1; # return unless 1 week earlier we're in a different month
+	return 0 unless (localtime(timelocal_modern(0,0,12,$d,$m-1,$y)-7*24*60*60))->mon() != $m-1; # return unless 1 week earlier we're in a different month
 	return 1;
 }
 
@@ -242,7 +242,7 @@ sub convertToDDMMYYYY ($) {
 
 sub addDays ($$$$) {
 	my ($day,$mon,$year,$dayDiff) = @_;
-	my $curDateEpoch = timelocal(0,0,0,$$day,$$mon-1,$$year-1900);
+	my $curDateEpoch = timelocal_modern(0,0,0,$$day,$$mon-1,$$year);
 	my $diffDate = localtime($curDateEpoch + $dayDiff * 60 * 60 * 25);
 	my @months = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec');
 	# dereference, so the passed variable is changed
@@ -255,7 +255,7 @@ sub addDays ($$$$) {
 sub subtractDays ($$) {
 	my ($date,$days) = @_;
 	my ($y,$m,$d) = $date =~ /(.{4})(..)(..)/;
-	my $theDate = localtime(timelocal(0,0,12,$d,$m-1,$y) - $days*24*60*60);
+	my $theDate = localtime(timelocal_modern(0,0,12,$d,$m-1,$y) - $days*24*60*60);
 	return sprintf("%04d%02d%02d",$theDate->year()+ 1900, $theDate->mon()+1, $theDate->mday());
 }
 
@@ -265,11 +265,11 @@ sub subtractDaysHol ($$;$$) {
 	my ($y,$m,$d) = $date =~ /(.{4})(..)(..)/;
 	return undef if !$y or !$m or !$d;
 	# first subtract days
-	my $refdate = localtime(timelocal(0,0,12,$d,$m-1,$y) - $days*24*60*60);
+	my $refdate = localtime(timelocal_modern(0,0,12,$d,$m-1,$y) - $days*24*60*60);
 	# then subtract further days as long weekend or holidays
 	if ($hol ne "NO") {
 		while ($refdate->wday() == 0 || $refdate->wday() == 6 || is_holiday($hol, sprintf("%04d%02d%02d", $refdate->year()+1900, $refdate->mon()+1, $refdate->mday()))) {
-			$refdate = localtime(timelocal(0,0,12,$refdate->mday(),$refdate->mon(),$refdate->year()+1900) - 24*60*60);
+			$refdate = localtime(timelocal_modern(0,0,12,$refdate->mday(),$refdate->mon(),$refdate->year()+1900) - 24*60*60);
 		}
 	}
 	return formatDate($refdate->year()+1900, $refdate->mon()+1, $refdate->mday(),$template);
@@ -281,11 +281,11 @@ sub addDaysHol ($$;$$) {
 	my ($y,$m,$d) = $date =~ /(.{4})(..)(..)/;
 	return undef if !$y or !$m or !$d;
 	# first add days
-	my $refdate = localtime(timelocal(0,0,12,$d,$m-1,$y) + $days*24*60*60);
+	my $refdate = localtime(timelocal_modern(0,0,12,$d,$m-1,$y) + $days*24*60*60);
 	# then add further days as long weekend or holidays
 	if ($hol ne "NO") {
 		while ($refdate->wday() == 0 || $refdate->wday() == 6 || is_holiday($hol,sprintf("%04d%02d%02d", $refdate->year()+1900, $refdate->mon()+1, $refdate->mday()))) {
-			$refdate = localtime(timelocal(0,0,12,$refdate->mday(),$refdate->mon(),$refdate->year()+1900) + 24*60*60);
+			$refdate = localtime(timelocal_modern(0,0,12,$refdate->mday(),$refdate->mon(),$refdate->year()+1900) + 24*60*60);
 		}
 	}
 	return formatDate($refdate->year()+1900, $refdate->mon()+1, $refdate->mday(),$template);
@@ -295,7 +295,7 @@ sub addDatePart {
 	my ($date, $count, $datepart, $template) = @_;
 	my %datepart = (d=>3,m=>4,y=>5,day=>3,mon=>4,year=>5,D=>3,M=>4,Y=>5,month=>4);
 	my ($y,$m,$d) = $date =~ /(.{4})(..)(..)/;
-	my $parts = localtime(timelocal(0,0,12,$d,$m-1,$y));
+	my $parts = localtime(timelocal_modern(0,0,12,$d,$m-1,$y));
 	@$parts[$datepart{$datepart}] += $count if $datepart{$datepart};
 	my $refdate =localtime(mktime @$parts);
 	return formatDate($refdate->year()+1900, $refdate->mon()+1, $refdate->mday(),$template);
@@ -341,8 +341,8 @@ sub get_dateseries ($$;$) {
 	my ($fromDate,$toDate,$hol) = @_;
 	my ($yf,$mf,$df) = $fromDate =~ /(.{4})(..)(..)/;
 	my ($yt,$mt,$dt) = $toDate =~ /(.{4})(..)(..)/;
-	my $from = timelocal(0,0,12,$df,$mf-1,$yf);
-	my $to = timelocal(0,0,12,$dt,$mt-1,$yt);
+	my $from = timelocal_modern(0,0,12,$df,$mf-1,$yf);
+	my $to = timelocal_modern(0,0,12,$dt,$mt-1,$yt);
 	my @dateseries;
 	for ($_= $from; $_<= $to; $_ += 24*60*60) {
 		my $date = localtime($_);
@@ -360,14 +360,14 @@ sub parseFromDDMMYYYY ($) {
 	my ($dateStr) = @_;
 	my ($df,$mf,$yf) = $dateStr =~ /(..*)\.(..*)\.(.{4})/;
 	return "invalid date" if !($yf >= 1900) or !($mf >= 1 && $mf <= 12) or !($df >= 1 && $df <= 31);
-	return timelocal(0,0,0,$df,$mf-1,$yf);
+	return timelocal_modern(0,0,0,$df,$mf-1,$yf);
 }
 
 sub parseFromYYYYMMDD ($) {
 	my ($dateStr) = @_;
 	my ($yf,$mf,$df) = $dateStr =~ /(.{4})(..)(..)/;
 	return "invalid date" if !($yf >= 1900) or !($mf >= 1 && $mf <= 12) or !($df >= 1 && $df <= 31);
-	return timelocal(0,0,0,$df,$mf-1,$yf);
+	return timelocal_modern(0,0,0,$df,$mf-1,$yf);
 }
 
 sub convertEpochToYYYYMMDD ($) {

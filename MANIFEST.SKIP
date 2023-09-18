@@ -8,9 +8,10 @@ blib
 Test
 putty
 config/Test
-fetchParamDescriptions.pl
+fetchParamDescriptionsUpdateVersion.pl
 compare.WinMerge
 EAI-Wrap-0.1
 MYMETA
 podpreview.url
 MANIFEST.SKIP
+^Makefile$

@@ -24,6 +24,8 @@ WriteMakefile(
 		'Spreadsheet::WriteExcel' => 0,
 		'Spreadsheet::ParseExcel' => 0,
 		'Text::CSV' => 0,
+		'Text::Glob' => 0,
+		'Time::Local' => 1.27,
 		'XML::LibXML' => 0,
 		'XML::LibXML::Debugging' => 0
 	},
