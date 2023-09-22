@@ -1,4 +1,4 @@
-package EAI::Wrap 0.4;
+package EAI::Wrap 0.5;
 
 use strict; use feature 'unicode_strings';
 use Time::Local; use Time::localtime; use MIME::Lite; use Data::Dumper; use Module::Refresh; use Exporter; use File::Copy; use Cwd; use Archive::Extract;

@@ -6,5 +6,5 @@
 	- completed getConn/setConn in EAI::DB and getHandle/setHandle in in EAI::FTP, added task{redoTimestampPatternPart} for redo improvement, added task{execOnly} and process{onlyExecFor} for selecting specific loads for execution, added checkParam for easier checking required parameters for EAI::Wrap API Calls, moved setting ErrSubject into EAI::Common::extractConfigs
 0.04  Sat Sep 16 12:00:00 2023
 	- refactored DB.pm, FTP.pm and File.pm to decouple from process and execute configs, added Log::Dispatch::Email::LogSender and use instead of Log::Dispatch::Email::MIMELite to fix a Mime:Lite problem with diacritic chars, fixed problems with execOnly/onlyExecFor, added feature unicode_strings, breaking change: renamed File{encoding} to File{format_encoding}, now only being used for reading and writing text files; removed all other encoding code.
-0.05  Sun Sep 17 12:00:00 2023
-	- fixed Issue #149802 (Testcase for DateUtil) by setting TZ explicitly in DateUtil.t and #149803 by including Text::Glob in Makefile.PL
+0.05  Mon Sep 18 23:00:00 2023
+	- fixed Issue #149802 (Testcase for DateUtil) by setting TZ explicitly in DateUtil.t and #149803 by including Text::Glob in Makefile.PL. replaced timelocal/gm with timelocal/gm_modern in DateUtil

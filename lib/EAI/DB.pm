@@ -1,4 +1,4 @@
-package EAI::DB 0.4;
+package EAI::DB 0.5;
 
 use strict; use feature 'unicode_strings';
 use DBI qw(:sql_types); use DBD::ODBC; use Data::Dumper; use Log::Log4perl qw(get_logger); use Exporter;

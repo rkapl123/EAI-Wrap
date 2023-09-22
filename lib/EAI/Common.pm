@@ -1,4 +1,4 @@
-package EAI::Common 0.4;
+package EAI::Common 0.5;
 
 use strict; use feature 'unicode_strings';
 use Exporter; use Log::Log4perl qw(get_logger); use EAI::DateUtil; use Data::Dumper; use Getopt::Long qw(:config no_ignore_case); use Scalar::Util qw(looks_like_number);

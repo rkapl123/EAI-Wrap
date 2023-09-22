@@ -1,4 +1,4 @@
-package EAI::File 0.4;
+package EAI::File 0.5;
 
 use strict; use feature 'unicode_strings';
 use Text::CSV; use Data::XLSX::Parser; use Spreadsheet::ParseExcel; use Spreadsheet::WriteExcel; use Excel::Writer::XLSX; use Data::Dumper; use XML::LibXML; use XML::LibXML::Debugging;
