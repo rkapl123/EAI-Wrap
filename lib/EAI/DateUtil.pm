@@ -1,9 +1,8 @@
-package EAI::DateUtil 0.5;
+package EAI::DateUtil 0.6;
 
-use strict;
-use Time::Local qw( timelocal_modern timegm_modern ); use Time::localtime; use Exporter; use POSIX qw(mktime);
+use strict; use warnings;
+use Exporter qw(import); use Time::Local qw( timelocal_modern timegm_modern ); use Time::localtime; use POSIX qw(mktime);
 
-our @ISA = qw(Exporter);
 our @EXPORT = qw(%months %monate get_curdate get_curdatetime get_curdate_dot formatDate formatDateFromYYYYMMDD get_curdate_dash get_curdate_gen get_curdate_dash_plus_X_years get_curtime get_curtime_HHMM get_lastdateYYYYMMDD get_lastdateDDMMYYYY is_first_day_of_month is_last_day_of_month get_last_day_of_month weekday is_weekend is_holiday first_week first_weekYYYYMMDD last_week last_weekYYYYMMDD convertDate convertDateFromMMM convertDateToMMM convertToDDMMYYYY addDays addDaysHol addDatePart subtractDays subtractDaysHol convertcomma convertToThousendDecimal get_dateseries parseFromDDMMYYYY parseFromYYYYMMDD convertEpochToYYYYMMDD);
 
 our %months = ("Jan" => "01","Feb" => "02","Mar" => "03","Apr" => "04","May" => "05","Jun" => "06","Jul" => "07","Aug" => "08","Sep" => "09","Oct" => "10","Nov" => "11","Dec" => "12");
@@ -60,7 +59,7 @@ sub get_curdate_dash {
 
 sub get_curdate_dash_plus_X_years ($;$$) {
 	my ($y) = $_[0];
-	my ($year,$mon,$day) = $_[1] =~ /(.{4})(..)(..)/;
+	my ($year,$mon,$day) = $_[1] =~ /(.{4})(..)(..)/ if $_[1];
 	my $daysToSubtract = $_[2] if $_[2];
 	if ($year) {
 		my $dateval;
@@ -78,11 +77,12 @@ sub get_curdate_dash_plus_X_years ($;$$) {
 sub get_curtime (;$) {
 	my ($format) = $_[0];
 	$format = "%02d:%02d:%02d" if !$format;
+	no warnings 'redundant';
 	return sprintf($format,localtime->hour(),localtime->min(),localtime->sec());
 }
 
 sub get_curtime_HHMM {
-	return sprintf("%02d%02d",localtime->hour(),localtime->min(),localtime->sec());
+	return sprintf("%02d%02d",localtime->hour(),localtime->min());
 }
 
 sub is_first_day_of_month ($) {
@@ -324,6 +324,7 @@ sub convertcomma ($;$) {
 sub convertToThousendDecimal ($;$) {
 	my ($value,$ignoreDecimal) = @_;
 	my ($negSign) = ($value =~ /(-).*?/);
+	$negSign = "" if !defined($negSign);
 	$value =~ s/-//;
 	# get digits before decimal point and after (optionally divided by thousand separator ".")
 	my ($intplaces,$decplaces) = $value =~ /(\d*)\.(\d*)/ if $value =~ /\./;
@@ -366,7 +367,7 @@ sub parseFromDDMMYYYY ($) {
 sub parseFromYYYYMMDD ($) {
 	my ($dateStr) = @_;
 	my ($yf,$mf,$df) = $dateStr =~ /(.{4})(..)(..)/;
-	return "invalid date" if !($yf >= 1900) or !($mf >= 1 && $mf <= 12) or !($df >= 1 && $df <= 31);
+	return "invalid date" if !$dateStr or !($yf >= 1900) or !($mf >= 1 && $mf <= 12) or !($df >= 1 && $df <= 31);
 	return timelocal_modern(0,0,0,$df,$mf-1,$yf);
 }
 

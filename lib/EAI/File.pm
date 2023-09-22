@@ -1,10 +1,9 @@
-package EAI::File 0.5;
+package EAI::File 0.6;
 
-use strict; use feature 'unicode_strings';
-use Text::CSV; use Data::XLSX::Parser; use Spreadsheet::ParseExcel; use Spreadsheet::WriteExcel; use Excel::Writer::XLSX; use Data::Dumper; use XML::LibXML; use XML::LibXML::Debugging;
-use Cwd; use Log::Log4perl qw(get_logger); use Time::localtime; use Scalar::Util qw(looks_like_number); use EAI::DateUtil;
-use Exporter;
-our @ISA = qw(Exporter);
+use strict; use feature 'unicode_strings'; use warnings; no warnings 'uninitialized';
+use Exporter qw(import); use Text::CSV (); use Data::XLSX::Parser (); use Spreadsheet::ParseExcel (); use Spreadsheet::WriteExcel (); use Excel::Writer::XLSX (); use Data::Dumper qw(Dumper); use XML::LibXML (); use XML::LibXML::Debugging ();
+use Log::Log4perl qw(get_logger); use Time::localtime; use Scalar::Util qw(looks_like_number); use EAI::DateUtil qw(convertEpochToYYYYMMDD);
+
 our @EXPORT = qw(readText readExcel readXML writeText writeExcel);
 
 # get common read procedure parameters from $File config, used in readText, readExcel and readXML
@@ -54,7 +53,6 @@ sub readText ($$$;$) {
 	$logger->debug("skip:$skip,sep:".Data::Dumper::qquote($origsep).",header:@header\ntargetheader:@targetheader");
 	$Data::Dumper::Terse = 0;
 	@targetheader = @header if !@targetheader; # if no specific targetheader defined use header instead
-
 	# read all files with same format
 	for my $filename (@filenames) {
 		$logger->debug("reading $redoSubDir$filename");
@@ -105,7 +103,6 @@ sub readText ($$$;$) {
 					}
 				}
 			}
-
 			# iterate through all rows of file
 			my $lineno = 0;
 			my (@line,@previousline);
@@ -202,7 +199,6 @@ sub row_handlerXLSX {
 		my $row = $cellDetail->{"row"};
 		my $col = $cellDetail->{"c"};
 		my $value = $cellDetail->{"v"};
-
 		if ($headerColumn{$col}) {
 			if (($stopOnEmptyValueColumn eq $col && !$value) || $stoppedOnEmptyValue) {
 				$logger->warn("empty cell in row $row / column $col and stopOnEmptyValueColumn is set to $col, skipping from here now") if !$stoppedOnEmptyValue; # pass warning only once
@@ -236,7 +232,6 @@ sub readExcel ($$$;$) {
 	# reset module global variables
 	undef %dateColumn;
 	undef %headerColumn;
-
 	# read format configuration
 	my ($lineProcessing,$fieldProcessing,$firstLineProc,$thousandsep,$decimalsep,$sep,$skip,$header,$targetheader) = getcommon($File);
 	my @header = @$header; my @targetheader = @$targetheader;
@@ -273,7 +268,6 @@ sub readExcel ($$$;$) {
 	}
 	$logger->debug("headerColumn:".Dumper(\%headerColumn).",dateColumn:".Dumper(\%dateColumn));
 	@header = @targetheader if !@header; # in the end only target header is important
-	
 	# read all files with same format
 	for my $filename (@filenames) {
 		my $startRow = 1; # starting data row
@@ -291,16 +285,14 @@ sub readExcel ($$$;$) {
 			$startRow = $startRowHeader + 1; # set to header following row if format_skip not defined and format_header given
 		}
 		# reset module global variables
-		%dataRows = undef;
+		%dataRows = ();
 		$maxRow = 1;
-
 		# check excel file existence
 		if (! -e $redoSubDir.$filename) {
 			$logger->error("no excel file ($filename) to process: $!") unless ($File->{optional});
 			$logger->warn("no file $redoSubDir$filename found"); 
 			return 0;
 		}
-
 		# read in excel file/sheet completely, both formats utilize read handlers (row_handlerXLSX or cell_handler)
 		my $parser;
 		if ($File->{format_xlformat} =~ /^xlsx$/i) {
@@ -308,7 +300,6 @@ sub readExcel ($$$;$) {
 			$parser = Data::XLSX::Parser->new;
 			$parser->open($redoSubDir.$filename);
 			$parser->add_row_event_handler(\&row_handlerXLSX);
-
 			if ($File->{format_worksheet}) {
 				$worksheet = $parser->workbook->sheet_id($File->{format_worksheet});
 				$logger->logdie("no worksheet found named ".$File->{format_worksheet}.", maybe try {format_worksheetID} (numerically ordered place)") if !$worksheet;
@@ -328,7 +319,7 @@ sub readExcel ($$$;$) {
 				NotSetCell  => 1
 			);
 			my $workbook = $parser->parse($redoSubDir.$filename);
-			if ( !defined $workbook ) {
+			if (!defined $workbook) {
 				$logger->error("excel parsing error: ".$parser->error());
 				return 0;
 			}
@@ -336,7 +327,6 @@ sub readExcel ($$$;$) {
 			$logger->error("unrecognised excel format passed in \$File->{format_xlformat}:".$File->{format_xlformat});
 			return 0;
 		}
-
 		# check header row if format_header given
 		if ($File->{format_header}) {
 			$logger->info("checking header info in row $startRowHeader");
@@ -405,7 +395,6 @@ sub readXML ($$$;$) {
 	$logger->debug("sep:".Data::Dumper::qquote($sep).",header:@header\ntargetheader:@targetheader");
 	$Data::Dumper::Terse = 0;
 	@targetheader = @header if !@targetheader; # if no specific targetheader defined use header instead
-
 	# read all files with same format
 	for my $filename (@filenames) {
 		if (! -e $redoSubDir.$filename) {
@@ -413,7 +402,6 @@ sub readXML ($$$;$) {
 			$logger->warn("file $redoSubDir$filename not found");
 			return 0;
 		}
-
 		my $xmldata = XML::LibXML->load_xml(location => $redoSubDir.$filename, no_blanks => 1);
 		my $xpc = XML::LibXML::XPathContext->new($xmldata);
 		if (ref($File->{format_namespaces}) eq 'HASH') {
@@ -529,7 +517,6 @@ sub readRow ($$$$$$$$$$$) {
 sub writeText ($$) {
 	my ($File,$data) = @_;
 	my $logger = get_logger();
-	
 	my $filename = $File->{filename};
 	if (ref($data) ne 'ARRAY') {
 		$logger->error("passed data in \$data is not a ref to array:".Dumper($data));
@@ -537,12 +524,11 @@ sub writeText ($$) {
 	}
 	# in case we need to print out csv/quoted values
 	my $sv = Text::CSV->new ({
-			binary    => 1,
-			auto_diag => 1,
-			sep_char  => $File->{format_sep},
-			eol => ($File->{format_eol} ? $File->{format_eol} : $/),
-		});
-
+		binary    => 1,
+		auto_diag => 1,
+		sep_char  => $File->{format_sep},
+		eol => ($File->{format_eol} ? $File->{format_eol} : $/),
+	});
 	my @columnnames; my @paddings;
 	if (ref($File->{columns}) eq 'ARRAY') {
 		@columnnames = @{$File->{columns}};
@@ -598,7 +584,6 @@ sub writeText ($$) {
 			print FHOUT $headerRow."\n";
 		}
 	}
-	
 	# write data
 	$logger->trace("passed data:\n".Dumper($data)) if $logger->is_trace;
 	for (my $i=0; $i<scalar(@{$data}); $i++) {
@@ -658,7 +643,6 @@ sub writeExcel ($$) {
 		$logger->error("passed data in \$data is not a ref to array:".Dumper($data));
 		return 0;
 	}
-
 	my @columnnames;
 	if (ref($File->{columns}) eq 'HASH') {
 		@columnnames = map {$File->{columns}{$_}} sort keys %{$File->{columns}};
@@ -666,7 +650,6 @@ sub writeExcel ($$) {
 		$logger->error("no field information given (columns should be ref to hash)");
 		return 0;
 	}
-
 	my ($workbook,$worksheet);
 	if ($File->{format_xlformat} =~ /^xls$/i) {
 		$logger->debug("writing to xls format file ".$File->{filename});
@@ -686,7 +669,6 @@ sub writeExcel ($$) {
 	}
 	# Add a worksheet
 	$worksheet = $workbook->add_worksheet();
-
 	$logger->debug("fields: @columnnames");
 	my @headerRow;
 	for my $colname (@columnnames) {
@@ -700,7 +682,6 @@ sub writeExcel ($$) {
 			$worksheet->write(0,$col,$headerRow[$col]);
 		}
 	}
-	
 	# write data
 	$logger->trace("passed data:\n".Dumper($data)) if $logger->is_trace;
 	for (my $i=0; $i<scalar(@{$data}); $i++) {

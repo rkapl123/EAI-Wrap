@@ -1,13 +1,12 @@
-package EAI::DB 0.5;
+package EAI::DB 0.6;
 
-use strict; use feature 'unicode_strings';
-use DBI qw(:sql_types); use DBD::ODBC; use Data::Dumper; use Log::Log4perl qw(get_logger); use Exporter;
+use strict; use feature 'unicode_strings'; use warnings;
+use Exporter qw(import); use DBI qw(:sql_types); use DBD::ODBC (); use Data::Dumper qw(Dumper); use Log::Log4perl qw(get_logger);
 
-our @ISA = qw(Exporter);
 our @EXPORT = qw(newDBH beginWork commit rollback readFromDB readFromDBHash doInDB storeInDB deleteFromDB updateInDB getConn setConn);
 
 my $dbh; # module static DBI handle, will be dynamic when using OO-Style here
-my $DSN; # module static DSN string, will be dynamic when using OO-Style here
+my $DSN = ""; # module static DSN string, will be dynamic when using OO-Style here
 
 # create a new handle for a database connection
 sub newDBH ($$) {
@@ -166,15 +165,15 @@ sub doInDB ($;$) {
 sub storeInDB ($$) {
 	my ($DB, $data) = @_;
 	my $logger = get_logger();
-	my $tableName = $DB->{tablename};
-	my $addID = $DB->{addID};
-	my $upsert= $DB->{upsert};
-	my $primkey = $DB->{primkey};
-	my $ignoreDuplicateErrs = $DB->{ignoreDuplicateErrs};
-	my $deleteBeforeInsertSelector = $DB->{deleteBeforeInsertSelector};
-	my $incrementalStore = $DB->{incrementalStore};
-	my $doUpdateBeforeInsert = $DB->{doUpdateBeforeInsert};
-	my $debugKeyIndicator = $DB->{debugKeyIndicator};
+	my $tableName = ($DB->{tablename} ? $DB->{tablename} : "");
+	my $addID = ($DB->{addID} ? $DB->{addID} : "");
+	my $upsert= ($DB->{upsert} ? $DB->{upsert} : 0);
+	my $primkey = ($DB->{primkey} ? $DB->{primkey} : "");
+	my $ignoreDuplicateErrs = ($DB->{ignoreDuplicateErrs} ? $DB->{ignoreDuplicateErrs} : "");
+	my $deleteBeforeInsertSelector = ($DB->{deleteBeforeInsertSelector} ? $DB->{deleteBeforeInsertSelector} : "");
+	my $incrementalStore = ($DB->{incrementalStore} ? $DB->{incrementalStore} : "");
+	my $doUpdateBeforeInsert = ($DB->{doUpdateBeforeInsert} ? $DB->{doUpdateBeforeInsert} : "");
+	my $debugKeyIndicator = ($DB->{debugKeyIndicator} ? $DB->{debugKeyIndicator} : "");
 
 	eval {
 		my @keycolumns = split "AND", $primkey;
@@ -202,7 +201,8 @@ sub storeInDB ($$) {
 		my $i=0; my @columns;
 		$logger->trace("type info:\n".Dumper($dbh->type_info("SQL_ALL_TYPES"))) if $logger->is_trace; # all available data type informations of DBD:ODBC driver
 		for (keys %{$coldefs}) {
-			if ($coldefs->{$_}{"COLUMN_DEF"} =~ /identity/ || $coldefs->{$_}{"TYPE_NAME"} =~ /identity/) { # for identity (auto incrementing) fields no filling needed
+			no warnings 'uninitialized';
+			if ($coldefs->{$_}{"COLUMN_DEF"} =~ /identity/ or $coldefs->{$_}{"TYPE_NAME"} =~ /identity/) { # for identity (auto incrementing) fields no filling needed
 				$logger->trace("TYPE_NAME for identity field ".$_.':'.$coldefs->{$_}{"TYPE_NAME"}) if $logger->is_trace;
 			} else {
 				$columns[$i]= $_;
@@ -290,7 +290,7 @@ sub storeInDB ($$) {
 							$severity = 1 if !$severity;
 						}
 						if ($dataArray[$tgtCol] && $dataArray[$tgtCol] !~ /^\d{4}\-\d{2}\-\d{2} \d{2}:\d{2}:\d{2}$/ && $dataArray[$tgtCol] !~ /^\d{4}\-\d{2}\-\d{2}$/) {
-							$errorIndicator .= "| correct dateformat (\d{4}\-\d{2}\-\d{2} \d{2}:\d{2}:\d{2} oder \d{4}\-\d{2}\-\d{2}) couldn't be created for: ".$dataArray[$tgtCol].", field: ".$columns[$dbCol];
+							$errorIndicator .= '| correct dateformat (\d{4}\-\d{2}\-\d{2} \d{2}:\d{2}:\d{2} or \d{4}\-\d{2}\-\d{2}) couldn\'t be created for: '.$dataArray[$tgtCol].", field: ".$columns[$dbCol];
 							$dataArray[$tgtCol] = undef;
 							$severity = 1 if !$severity;
 						}
@@ -316,7 +316,7 @@ sub storeInDB ($$) {
 						# fill primary key values with data from current row for update (in case insert fails)
 						$updselector =~ s/$colName\s*=\s*\?/\[$colName\] = $colVal/ if ($updselector =~ /^$colName\s*=\s*\?/ || $updselector =~ /AND $colName\s*=\s*\?/i);
 						# delete before select statement requires specific selector to only delete once for occurred data (first appearance of colVal)
-						$deleteBeforeInsertSelector =~ s/$colName\s*=\s*\?/\[$colName\] = $colVal/ if ($deleteBeforeInsertSelector =~ /^$colName\s*=\s*\?/ || $deleteBeforeInsertSelector =~ /AND $colName\s*=\s*\?/);
+						$deleteBeforeInsertSelector =~ s/$colName\s*=\s*\?/\[$colName\] = $colVal/ if ($deleteBeforeInsertSelector and ($deleteBeforeInsertSelector =~ /^$colName\s*=\s*\?/ || $deleteBeforeInsertSelector =~ /AND $colName\s*=\s*\?/));
 						$updcols.="[".$colName."] = ".$colVal.",";
 						$inscols.="[".$colName."],";
 						$inscolVals.=$colVal.",";

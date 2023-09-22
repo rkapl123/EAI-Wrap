@@ -1,20 +1,18 @@
-package EAI::FTP 0.5;
+package EAI::FTP 0.6;
 
-use strict; use feature 'unicode_strings';
-use Net::SFTP::Foreign; use Net::SFTP::Foreign::Constants qw( SFTP_ERR_LOCAL_UTIME_FAILED ); use Net::FTP; use Text::Glob qw( match_glob);
-use Scalar::Util 'blessed'; use Fcntl ':mode'; # for S_ISREG check in removeFilesOlderX
-use Log::Log4perl qw(get_logger); use File::Temp; use Time::Local; use Time::localtime; use Exporter; use Data::Dumper;
-use EAI::DateUtil;
+use strict; use feature 'unicode_strings'; use warnings;
+use Exporter qw(import); use Net::SFTP::Foreign (); use Net::SFTP::Foreign::Constants qw( SFTP_ERR_LOCAL_UTIME_FAILED ); use Net::FTP (); use Text::Glob qw(match_glob);
+use Log::Log4perl qw(get_logger); use File::Temp qw(tempfile); use Data::Dumper qw(Dumper); use Scalar::Util 'blessed'; use Fcntl ':mode'; # for S_ISREG check in removeFilesOlderX
+use EAI::DateUtil qw(get_curdatetime get_curdate addDatePart parseFromYYYYMMDD);
 # for passwords that contain <#|>% we have to use shell quoting on windows (special "use" to make this optional on non-win environments)
 BEGIN {
 	if ($^O =~ /MSWin/) {require Win32::ShellQuote; Win32::ShellQuote->import();}
 }
 
-our @ISA = qw(Exporter);
 our @EXPORT = qw(removeFilesOlderX fetchFiles putFile moveTempFile archiveFiles removeFiles login getHandle setHandle);
 
 my $ftp; # module static SFTP handle, will be dynamic when using OO-Style here
-my $RemoteHost; # module static RemoteHost string, will be dynamic when using OO-Style here
+my $RemoteHost = ""; # module static RemoteHost string, will be dynamic when using OO-Style here
 
 # wrappers for different FTP implementations
 
@@ -439,10 +437,11 @@ sub login ($$) {
 		push @moreparams, @{$FTP->{moreparams}} if $FTP->{moreparams} and ref($FTP->{moreparams}) eq "ARRAY";
 		push @moreparams, %{$FTP->{moreparams}} if $FTP->{moreparams} and ref($FTP->{moreparams}) eq "HASH";
 		do {
-			my $ssherr = File::Temp->new or $logger->error("couldn't open temp file for ftperrlog");
+			my $ssherr = File::Temp::tempfile() or $logger->error("couldn't open temp file for ftperrlog");
 			$logger->debug("connection try: $connectionTries");
 			# separate setting of debug level, additional to "-v" verbose
 			$Net::SFTP::Foreign::debug = $debugLevel;
+			no warnings 'Net::SFTP::Foreign'; # suppress warning on using insecure password authentication with plink
 			$ftp = Net::SFTP::Foreign->new(
 				host => $RemoteHost,
 				user => $FTP->{user},
@@ -477,7 +476,7 @@ sub login ($$) {
 		my $connectionTries = 0; my $loginSuccess;
 		do {
 			$ftp = Net::FTP->new($RemoteHost,Debug => $FTP->{FTPdebugLevel}, Port => ($FTP->{port} ? $FTP->{port} : '21'));
-			if ($ftp eq undef) {
+			if (! defined($ftp)) {
 				$logger->error("connection to ".$RemoteHost." failed, reason: $@ $!");
 				undef $ftp;
 				return 0;
@@ -495,7 +494,7 @@ sub login ($$) {
 			undef $ftp;
 			return 0;
 		}
-		if ($FTP->{translationtype} eq "A") {
+		if (defined($FTP->{translationtype}) and $FTP->{translationtype} eq "A") {
 			if (!$$ftp->ascii()) {
 				$logger->error("can't switch to ascii, reason: ".$ftp->message);
 				undef $ftp;

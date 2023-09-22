@@ -1,13 +1,9 @@
-package EAI::Wrap 0.5;
+package EAI::Wrap 0.6;
 
-use strict; use feature 'unicode_strings';
-use Time::Local; use Time::localtime; use MIME::Lite; use Data::Dumper; use Module::Refresh; use Exporter; use File::Copy; use Cwd; use Archive::Extract;
-# we make $EAI::Common::common/config/execute/loads an alias for $EAI::Wrap::common/config/execute/loads so that the user can set it without knowing anything about the Common package!
-our %common;
-our %config;
-our %execute;
-our @loads;
-our @optload; our %opt;
+use strict; use feature 'unicode_strings'; use warnings;
+use Exporter qw(import); use Data::Dumper qw(Dumper); use File::Copy qw(copy move); use Cwd qw(chdir); use Archive::Extract ();
+# we make $EAI::Common::common/config/execute/loads/optload/opt an alias for $EAI::Wrap::common/config/execute/loads/optload/opt so that the user can set it without knowing anything about the Common package!
+our %common;our %config;our @loads;our %execute;our @optload;our %opt;
 
 BEGIN {
 	*EAI::Common::common = \%common;
@@ -19,7 +15,6 @@ BEGIN {
 };
 use EAI::Common; use EAI::DateUtil; use EAI::DB; use EAI::File; use EAI::FTP;
 
-our @ISA = qw(Exporter);
 our @EXPORT = qw(%common %config %execute @loads @optload %opt removeFilesinFolderOlderX openDBConn openFTPConn redoFiles getLocalFiles getFilesFromFTP getFiles checkFiles extractArchives getAdditionalDBData readFileData dumpDataIntoDB markProcessed writeFileFromDB putFileInLocalDir markForHistoryDelete uploadFileToFTP uploadFileCMD uploadFile processingEnd processingPause moveFilesToHistory deleteFiles
 %months %monate get_curdate get_curdatetime get_curdate_dot formatDate formatDateFromYYYYMMDD get_curdate_dash get_curdate_gen get_curdate_dash_plus_X_years get_curtime get_curtime_HHMM get_lastdateYYYYMMDD get_lastdateDDMMYYYY is_first_day_of_month is_last_day_of_month get_last_day_of_month weekday is_weekend is_holiday first_week first_weekYYYYMMDD last_week last_weekYYYYMMDD convertDate convertDateFromMMM convertDateToMMM convertToDDMMYYYY addDays addDaysHol addMonths subtractDays subtractDaysHol convertcomma convertToThousendDecimal get_dateseries parseFromDDMMYYYY parseFromYYYYMMDD convertEpochToYYYYMMDD
 newDBH beginWork commit rollback readFromDB readFromDBHash doInDB storeInDB deleteFromDB updateInDB getConn setConn
@@ -32,8 +27,8 @@ get_logger Dumper);
 sub INIT {
 	# read site config, additional configs and sensitive config in alphabetical order (allowing precedence)
 	STDOUT->autoflush(1);
-	$EAI_WRAP_CONFIG_PATH = $ENV{EAI_WRAP_CONFIG_PATH};
-	$EAI_WRAP_SENS_CONFIG_PATH = $ENV{EAI_WRAP_SENS_CONFIG_PATH};
+	$EAI_WRAP_CONFIG_PATH = ($ENV{EAI_WRAP_CONFIG_PATH} ? $ENV{EAI_WRAP_CONFIG_PATH} : "");
+	$EAI_WRAP_SENS_CONFIG_PATH = ($ENV{EAI_WRAP_SENS_CONFIG_PATH} ? $ENV{EAI_WRAP_SENS_CONFIG_PATH} : "");
 	$EAI_WRAP_CONFIG_PATH =~ s/\\/\//g;
 	$EAI_WRAP_SENS_CONFIG_PATH =~ s/\\/\//g;
 	print STDOUT "EAI_WRAP_CONFIG_PATH: ".($EAI_WRAP_CONFIG_PATH ? $EAI_WRAP_CONFIG_PATH : "not set").", EAI_WRAP_SENS_CONFIG_PATH: ".($EAI_WRAP_SENS_CONFIG_PATH ? $EAI_WRAP_SENS_CONFIG_PATH : "not set")."\n";
@@ -214,7 +209,7 @@ sub getLocalFiles ($) {
 	return 1;
 }
 
-# get file/s (can also be a glob for multiple files) from FTP into homedir and extract archives if needed
+# get file/s (can also be a glob for multiple files) from FTP into homedir
 sub getFilesFromFTP ($) {
 	my $arg = shift;
 	my $logger = get_logger();
@@ -261,7 +256,7 @@ sub checkFiles ($) {
 	my $logger = get_logger();
 	my ($File,$process) = EAI::Common::extractConfigs("checking for existence of files",$arg,"File","process");
 	return 1 if $execute{retryBecauseOfError} and !$process->{hadErrors};
-	my $redoDir = $execute{redoDir}."/" if $common{task}{redoFile};
+	my $redoDir = ($common{task}{redoFile} ? $execute{redoDir}."/" : "");
 	my $fileDoesntExist;
 	if ($execute{retrievedFiles} and @{$execute{retrievedFiles}} >= 1) {
 		for my $singleFilename (@{$execute{retrievedFiles}}) {
@@ -315,7 +310,7 @@ sub extractArchives ($) {
 	my $logger = get_logger();
 	my ($process) = EAI::Common::extractConfigs("extracting archives",$arg,"process");
 	return 1 if $execute{retryBecauseOfError} and !$process->{hadErrors};
-	my $redoDir = $execute{redoDir}."/" if $common{task}{redoFile};
+	my $redoDir = ($common{task}{redoFile} ? $execute{redoDir}."/" : "");
 	if ($execute{retrievedFiles}) { 
 		for my $filename (@{$execute{retrievedFiles}}) {
 			if (! -e $redoDir.$filename) {
@@ -777,7 +772,7 @@ sub moveFilesToHistory (;$) {
 	my ($archiveTimestamp) = @_;
 	my $logger = get_logger();
 	$archiveTimestamp = EAI::DateUtil::get_curdatetime() if !$archiveTimestamp;
-	my $redoDir = $execute{redoDir}."/" if $common{task}{redoFile};
+	my $redoDir = ($common{task}{redoFile} ? $execute{redoDir}."/" : "");
 	EAI::Common::setErrSubject("local archiving");
 	for my $histFolder ("historyFolder", "historyFolderUpload") {
 		my @filenames = @{$execute{filesToMoveinHistory}} if $execute{filesToMoveinHistory};
@@ -805,7 +800,7 @@ sub moveFilesToHistory (;$) {
 sub deleteFiles ($) {
 	my ($filenames) = @_;
 	my $logger = get_logger();
-	my $redoDir = $execute{redoDir}."/" if $common{task}{redoFile};
+	my $redoDir = ($common{task}{redoFile} ? $execute{redoDir}."/" : "");
 	EAI::Common::setErrSubject("local cleanup"); #
 	for (@$filenames) {
 		if (!$execute{alreadyMovedOrDeleted}{$_}) {
@@ -1118,7 +1113,7 @@ code to be executed during INIT of EAI::Wrap to allow for assignment of config/e
 
 =item folderEnvironmentMapping
 
-Mapping for $execute{envraw} to $execute{env}
+Mapping for $execute{envraw} to $execute{env}:
 
 =item fromaddress
 

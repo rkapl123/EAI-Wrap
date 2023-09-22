@@ -1,13 +1,12 @@
-package EAI::Common 0.5;
+package EAI::Common 0.6;
 
-use strict; use feature 'unicode_strings';
-use Exporter; use Log::Log4perl qw(get_logger); use EAI::DateUtil; use Data::Dumper; use Getopt::Long qw(:config no_ignore_case); use Scalar::Util qw(looks_like_number);
+use strict; use feature 'unicode_strings'; use warnings; no warnings 'uninitialized';
+use Exporter qw(import); use EAI::DateUtil qw(get_curdate is_holiday); use Data::Dumper qw(Dumper); use Getopt::Long qw(:config no_ignore_case); use Log::Log4perl qw(get_logger); use MIME::Lite (); use Email::MIME (); use Scalar::Util qw(looks_like_number); use Module::Refresh ();
 # to make use of colored logs with Log::Log4perl::Appender::ScreenColoredLevels on windows we have to use that (special "use" to make this optional on non-win environments)
 BEGIN {
 	if ($^O =~ /MSWin/) {require Win32::Console::ANSI; Win32::Console::ANSI->import();}
 }
 
-our @ISA = qw(Exporter);
 our @EXPORT = qw($EAI_WRAP_CONFIG_PATH $EAI_WRAP_SENS_CONFIG_PATH %common %config %execute @loads @optload %opt readConfigFile getSensInfo setupConfigMerge getOptions setupEAIWrap extractConfigs checkHash checkParam getLogFPathForMail getLogFPath MailFilter setErrSubject setupLogging checkStartingCond sendGeneralMail looks_like_number get_logger);
 
 my %hashCheck = (
@@ -19,19 +18,19 @@ my %hashCheck = (
 		task => {},
 	},
 	config => { # parameter category for site global settings, defined in site.config and other associated configs loaded at INIT
-		checkLookup => {"test.pl" => {errmailaddress => "",errmailsubject => "",timeToCheck =>, freqToCheck => "", logFileToCheck => "", logcheck => "",logRootPath =>""},}, # used for logchecker, each entry of the hash defines a log to be checked, defining errmailaddress to receive error mails, errmailsubject, timeToCheck as earliest time to check for existence in log, freqToCheck as frequency of checks (daily/monthly/etc), logFileToCheck as the name of the logfile to check, logcheck as the regex to check in the logfile and logRootPath as the folder where the logfile is found. lookup key: $execute{scriptname} + $execute{addToScriptName}
+		checkLookup => {"test.pl" => {errmailaddress => "",errmailsubject => "",timeToCheck =>"", freqToCheck => "", logFileToCheck => "", logcheck => "",logRootPath =>""}}, # used for logchecker, each entry of the hash defines a log to be checked, defining errmailaddress to receive error mails, errmailsubject, timeToCheck as earliest time to check for existence in log, freqToCheck as frequency of checks (daily/monthly/etc), logFileToCheck as the name of the logfile to check, logcheck as the regex to check in the logfile and logRootPath as the folder where the logfile is found. lookup key: $execute{scriptname} + $execute{addToScriptName}
 		errmailaddress => "", # default mail address for central logcheck/errmail sending 
 		errmailsubject => "", # default mail subject for central logcheck/errmail sending 
 		executeOnInit => "", # code to be executed during INIT of EAI::Wrap to allow for assignment of config/execute parameters from commandline params BEFORE Logging!
-		folderEnvironmentMapping => {Test => "Test", Dev => "Dev", "" => "Prod"}, # Mapping for $execute{envraw} to $execute{env}
+		folderEnvironmentMapping => {Test => "Test", Dev => "Dev", "" => "Prod"}, # Mapping for $execute{envraw} to $execute{env}:
 		fromaddress => "", # from address for central logcheck/errmail sending, also used as default sender address for sendGeneralMail
-		historyFolder => {"" => "default",}, # folders where downloaded files are historized, lookup key as checkLookup, default in "" =>
-		historyFolderUpload => {"" => "default",}, # folders where uploaded files are historized, lookup key as checkLookup, default in "" =>
+		historyFolder => {"" => "default"}, # folders where downloaded files are historized, lookup key as checkLookup, default in "" =>
+		historyFolderUpload => {"" => "default"}, # folders where uploaded files are historized, lookup key as checkLookup, default in "" =>
 		logCheckHoliday => "", # calendar for business days in central logcheck/errmail sending
 		logs_to_be_ignored_in_nonprod => '', # logs to be ignored in central logcheck/errmail sending
-		logRootPath => {"" => "default",}, # paths to log file root folders (environment is added to that if non production), lookup key as checkLookup, default in "" =>
-		redoDir => {"" => "default",}, # folders where files for redo are contained, lookup key as checkLookup, default in "" =>
-		sensitive => {"prefix" => {user=>"",pwd =>"",hostkey=>"",privkey =>""},}, # hash lookup for sensitive access information in DB and FTP (lookup keys are set with DB{prefix} or FTP{prefix}), may also be placed outside of site.config; all sensitive keys can also be environment lookups, e.g. hostkey=>{Test => "", Prod => ""} to allow for environment specific setting
+		logRootPath => {"" => "default"}, # paths to log file root folders (environment is added to that if non production), lookup key as checkLookup, default in "" =>
+		redoDir => {"" => "default"}, # folders where files for redo are contained, lookup key as checkLookup, default in "" =>
+		sensitive => {"prefix" => {user=>"",pwd =>"",hostkey=>"",privkey =>""}}, # hash lookup for sensitive access information in DB and FTP (lookup keys are set with DB{prefix} or FTP{prefix}), may also be placed outside of site.config; all sensitive keys can also be environment lookups, e.g. hostkey=>{Test => "", Prod => ""} to allow for environment specific setting
 		smtpServer => "", # smtp server for den (error) mail sending
 		smtpTimeout => 60, # timeout for smtp response
 		testerrmailaddress => '', # error mail address in non prod environment
@@ -95,7 +94,7 @@ my %hashCheck = (
 		longreadlen => 1024, # used for setting database handles LongReadLen parameter for DB connection, if not set defaults to 1024
 		noDBTransaction => 1, # don't use a DB transaction for dumpDataIntoDB
 		noDumpIntoDB => 1, # if files from this load should not be dumped to the database
-		postDumpExecs => [{execs => ['',''], condition => ''},], # done in dumpDataIntoDB after postDumpProcessing and before commit/rollback. doInDB everything in execs if condition is fulfilled 
+		postDumpExecs => [{execs => ['',''], condition => ''}], # done in dumpDataIntoDB after postDumpProcessing and before commit/rollback. doInDB everything in execs if condition is fulfilled 
 		postDumpProcessing => "", # done in dumpDataIntoDB after storeInDB, execute perl code in postDumpProcessing
 		postReadProcessing => "", # done in writeFileFromDB after readFromDB, execute perl code in postReadProcessing
 		prefix => "db", # key for sensitive information (e.g. pwd and user) in config{sensitive}
@@ -217,6 +216,7 @@ my %ignoreType = (
 	Fileformat_skip => 1, # can be line number (int) or "skip until pattern" string
 	Fileformat_sep => 1, # can be regex split or separator string
 	taskskipHolidays => 1, # can be true (1) or calendar string
+	taskskipForFirstBusinessDate => 1, # can be true (1) or calendar string
 );
 
 our %common;our %config;our @loads;our %execute;our @optload;our %opt;
@@ -357,7 +357,7 @@ sub getOptions {
 sub extractConfigs ($$$;@) {
 	my ($contextSub,$arg,@required) = @_;
 	my $logger = get_logger();
-	$logger->debug(($contextSub ? "setting err subject $contextSub for " : "").(caller(1))[3]);
+	$logger->debug(($contextSub ? "setting err subject $contextSub for " : "").(caller(1))[3]) if caller(1);
 	setErrSubject($contextSub) if $contextSub;
 	my @ret;
 	if (ref($arg) eq "HASH") {
@@ -367,7 +367,8 @@ sub extractConfigs ($$$;@) {
 		}
 		checkHash(\%execute,"execute") or $logger->error($@); # also check always the execute hash ...
 	} else {
-		my $errStr = "no ref to hash passed when calling ".(caller(1))[3].", line ".(caller(1))[2]." in ".(caller(1))[1];
+		my $errStr = "no ref to hash passed when calling ".(caller(0))[3].", line ".(caller(0))[2]." in ".(caller(0))[1];
+		$errStr = "no ref to hash passed when calling ".(caller(1))[3].", line ".(caller(1))[2]." in ".(caller(1))[1] if caller(1);
 		$logger->error($errStr);
 	}
 	return @ret;
@@ -376,7 +377,10 @@ sub extractConfigs ($$$;@) {
 # check config hash passed in $hash for validity against hashCheck (valid key entries are there + their valid value types (examples)). returns 0 on error and exception $@ contains details
 sub checkHash ($$) {
 	my ($hash, $hashName) = @_;
-	my $locStr = " when calling ".(caller(2))[3].", line ".(caller(2))[2]." in ".(caller(2))[1];
+	# try to backtrack as far as possible, maximum 3 calls (script -> function -> extractConfigs):
+	my $locStr = " when calling ".(caller(0))[3].", line ".(caller(0))[2]." in ".(caller(0))[1];
+	$locStr = " when calling ".(caller(1))[3].", line ".(caller(1))[2]." in ".(caller(1))[1] if caller(1);
+	$locStr = " when calling ".(caller(2))[3].", line ".(caller(2))[2]." in ".(caller(2))[1] if caller(2);
 	eval {
 		for my $defkey (keys %{$hash}) {
 			unless ($hashName eq "process" and $defkey =~ /interactive.*/) {
@@ -531,7 +535,6 @@ sub checkStartingCond ($) {
 	my $arg = shift;
 	my $logger = get_logger();
 	my ($task) = extractConfigs("checking starting conditions",$arg,"task");
-
 	my $curdate = get_curdate();
 	$logger->debug("checkStartingCond for \$curdate: $curdate, task config:".Dumper($task));
 	# skipHolidays is either a calendar or 1 (then defaults to $task->{skipHolidaysDefault})
@@ -539,7 +542,7 @@ sub checkStartingCond ($) {
 	# skipForFirstBusinessDate is for "wait with execution for first business date", either this is a calendar or 1 (then calendar is skipHolidaysDefault), this cannot be used together with skipHolidays
 	$holidayCal = $task->{skipForFirstBusinessDate} if $task->{skipForFirstBusinessDate};
 	# default setting (1 becomes $task->{skipHolidaysDefault})
-	$holidayCal = $task->{skipHolidaysDefault} if ($task->{skipForFirstBusinessDate} == 1 or $task->{skipHolidays} == 1);
+	$holidayCal = $task->{skipHolidaysDefault} if ($task->{skipForFirstBusinessDate} eq "1" or $task->{skipHolidays} eq "1");
 	if ($holidayCal) {
 		if (is_holiday($holidayCal,$curdate) and !$task->{redoFile}) {
 			$logger->info("skip processing (skipHolidays = ".$task->{skipHolidays}.", skipForFirstBusinessDate = ".$task->{skipForFirstBusinessDate}.") as $curdate holiday in $holidayCal !");
@@ -588,7 +591,7 @@ sub sendGeneralMail ($$$$$$;$$$$) {
 			Data    => ($Type eq 'multipart/related' ? undef : $Data),
 			Encoding => ($Type eq 'multipart/related' ? undef : $Encoding)
 		);
-	$logger->error("couldn't create msg  for mail sending..") unless $msg;
+	$logger->error("couldn't create msg for mail sending..") unless $msg;
 	if ($Type eq 'multipart/related') {
 		$msg->attach(
 			Type => 'text/html',

@@ -43,6 +43,9 @@ WriteMakefile(
 				url  => 'https://github.com/rkapl123/EAI-Wrap.git',
 				web  => 'https://github.com/rkapl123/EAI-Wrap',
 			},
+			bugtracker => {
+				web => 'https://github.com/rkapl123/EAI-Wrap/issues',
+			},
 		},
 		prereqs => {
 			runtime => {
