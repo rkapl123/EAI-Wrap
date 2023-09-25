@@ -1,5 +1,5 @@
 use strict; use warnings; use Data::Dumper;
-use EAI::Common; use Test::More; use Test::File; use File::Spec;
+use EAI::Common; use EAI::DateUtil; use Test::More; use Test::File; use File::Spec;
 use Test::More tests => 19;
 
 require './t/setup.pl';
@@ -79,6 +79,10 @@ is(checkParam(\%DB,"irrelevant"),0,"checkParam didn't find anything in undefined
 is(checkStartingCond(\%common),0,"no starting condition exit");
 
 # 19 starting condition exit because holiday
+sub testCalSpecial {
+	return 1;
+}
+addCalendar("TEST",{},{},\&testCalSpecial);
 $common{task}{skipHolidays} = "TEST";
 is(checkStartingCond(\%common),1,"starting condition exit because holiday");
 

@@ -1,5 +1,5 @@
 0.01  Wed Apr 26 16:00:00 2023
-	- original version
+	- intial version
 0.02  Mon Sep 11 18:00:00 2023
 	- fixed author test 3b_Wrap_Integration.t for automated tests, enhanced 2_File.t with excel format_skip (+ improved logging)
 0.03  Wed Sep 13 23:00:00 2023
@@ -10,3 +10,7 @@
 	- fixed Issue #149802 (Testcase for DateUtil) by setting TZ explicitly in DateUtil.t and #149803 by including Text::Glob in Makefile.PL. replaced timelocal/gm with timelocal/gm_modern in DateUtil
 0.06  Fri Sep 22 23:00:00 2023
 	- added use warnings, restricted imports from used modules.
+0.07  Mon Sep 25 23:00:00 2023
+	- fixed trial Email::MIME leftover, added possibility to add custom calendars in DateUtil and refactored is_holiday.
+0.08  Mon Sep 25 24:00:00 2023
+	- added possibility to add custom locales in DateUtil, removed exported locale hashes and replaced with accessor functions.

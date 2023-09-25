@@ -1,12 +1,36 @@
-package EAI::DateUtil 0.6;
+package EAI::DateUtil 0.8;
 
-use strict; use warnings;
-use Exporter qw(import); use Time::Local qw( timelocal_modern timegm_modern ); use Time::localtime; use POSIX qw(mktime);
+use strict; use warnings; use feature 'unicode_strings'; use utf8;
+use Exporter qw(import); use Time::Local qw( timelocal_modern timegm_modern ); use Time::localtime; use POSIX qw(mktime); use Data::Dumper;
 
-our @EXPORT = qw(%months %monate get_curdate get_curdatetime get_curdate_dot formatDate formatDateFromYYYYMMDD get_curdate_dash get_curdate_gen get_curdate_dash_plus_X_years get_curtime get_curtime_HHMM get_lastdateYYYYMMDD get_lastdateDDMMYYYY is_first_day_of_month is_last_day_of_month get_last_day_of_month weekday is_weekend is_holiday first_week first_weekYYYYMMDD last_week last_weekYYYYMMDD convertDate convertDateFromMMM convertDateToMMM convertToDDMMYYYY addDays addDaysHol addDatePart subtractDays subtractDaysHol convertcomma convertToThousendDecimal get_dateseries parseFromDDMMYYYY parseFromYYYYMMDD convertEpochToYYYYMMDD);
+our @EXPORT = qw(monthsToInt intToMonths addLocaleMonths get_curdate get_curdatetime get_curdate_dot formatDate formatDateFromYYYYMMDD get_curdate_dash get_curdate_gen get_curdate_dash_plus_X_years get_curtime get_curtime_HHMM get_lastdateYYYYMMDD get_lastdateDDMMYYYY is_first_day_of_month is_last_day_of_month get_last_day_of_month weekday is_weekend is_holiday is_easter addCalendar first_week first_weekYYYYMMDD last_week last_weekYYYYMMDD convertDate convertDateFromMMM convertDateToMMM convertToDDMMYYYY addDays addDaysHol addDatePart subtractDays subtractDaysHol convertcomma convertToThousendDecimal get_dateseries parseFromDDMMYYYY parseFromYYYYMMDD convertEpochToYYYYMMDD);
 
-our %months = ("Jan" => "01","Feb" => "02","Mar" => "03","Apr" => "04","May" => "05","Jun" => "06","Jul" => "07","Aug" => "08","Sep" => "09","Oct" => "10","Nov" => "11","Dec" => "12");
-our %monate = ("Jan" => "01","Feb" => "02","Mär" => "03","Apr" => "04","Mai" => "05","Jun" => "06","Jul" => "07","Aug" => "08","Sep" => "09","Okt" => "10","Nov" => "11","Dez" => "12");
+my %monthsToInt = (
+	"en" => {"jan" => "01","feb" => "02","mar" => "03","apr" => "04","may" => "05","jun" => "06","jul" => "07","aug" => "08","sep" => "09","oct" => "10","nov" => "11","dec" => "12"},
+	"ge" => {"jan" => "01","feb" => "02","mär" => "03","apr" => "04","mai" => "05","jun" => "06","jul" => "07","aug" => "08","sep" => "09","okt" => "10","nov" => "11","dez" => "12"}
+);
+my %intTomonths = (
+	"en" => ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"],
+	"ge" => ["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"]
+);
+
+sub monthsToInt ($$) {
+	my ($m,$locale) = @_;
+	if ($intTomonths{lc($locale)} and defined($monthsToInt{lc($locale)}{$m})) {
+		return $monthsToInt{lc($locale)}{$m};
+	} else {
+		return "";
+	}
+}
+
+sub intToMonths ($$) {
+	my ($m,$locale) = @_;
+	if ($intTomonths{lc($locale)} and @{$intTomonths{lc($locale)}} >= $m) {
+		return $intTomonths{lc($locale)}[$m-1];
+	} else {
+		return "";
+	}
+}
 
 sub get_curdate {
 	return sprintf("%04d%02d%02d",localtime->year()+ 1900, localtime->mon()+1, localtime->mday());
@@ -20,19 +44,39 @@ sub get_curdate_dot {
 	return sprintf("%02d.%02d.%04d",localtime->mday(), localtime->mon()+1, localtime->year()+ 1900);
 }
 
+sub addLocaleMonths ($$) {
+	my ($locale,$monthList) = @_;
+	$locale = lc($locale);
+	if (defined($monthsToInt{$locale})) {
+		warn("locale <$locale> already implemented for monthsToInt !");
+		return 0;
+	}
+	if (defined($intTomonths{$locale})) {
+		warn("locale <$locale> already implemented for intTomonths !");
+		return 0;
+	}
+	$intTomonths{$locale} = $monthList;
+	my $i = 1;
+	for (@$monthList) {
+		$monthsToInt{$locale}{lc($_)} = sprintf("%02d", $i);
+		$i++;
+	}
+	return 1;
+}
+
 sub formatDate ($$$;$) {
 	my ($y,$m,$d,$template) = @_;
 	$template = "YMD" if !$template;
-	my @months = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec');
-	my @monate = ('Jän', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez');
+	my ($locale) = $template =~ /\[(.*?)\]$/;
 	my $result = $template;
+	$result =~ s/\[$locale\]// if $locale;
 	$y = sprintf("%04d", $y);
 	$m = sprintf("%02d", $m);
 	$d = sprintf("%02d", $d);
 	if ($result =~ /MMM/i) {
-		my $mmm;
-		$mmm = $months[$m-1] if $result =~ /MMM/;
-		$mmm = $monate[$m-1] if $result =~ /mmm/;
+		$locale = "ge" if $result =~ /mmm/ and !$locale;
+		$locale = "en" if !$locale;
+		my $mmm = intToMonths($m,$locale);
 		$result =~ s/MMM/$mmm/i;
 	} else {
 		$result =~ s/M/$m/;
@@ -92,10 +136,10 @@ sub is_first_day_of_month ($) {
 
 sub is_last_day_of_month ($;$) {
 	my ($y,$m,$d) = $_[0] =~ /(.{4})(..)(..)/;
-	my $hol = $_[1];
+	my $cal = $_[1];
 	# for respecting holidays add 1 day and compare month
-	if ($hol) {
-		my $shiftedDate = addDaysHol($_[0],1,"YMD",$hol);
+	if ($cal) {
+		my $shiftedDate = addDaysHol($_[0],1,"YMD",$cal);
 		my ($ys,$ms,$ds) = $shiftedDate =~ /(.{4})(..)(..)/;
 		($ms ne $m ? 1 : 0); 
 	} else {
@@ -131,44 +175,84 @@ sub makeMD ($) {
 	sprintf("%02d%02d", (gmtime($_[0]))[3],(gmtime($_[0]))[4] + 1);
 }
 
-sub is_holiday ($$) {
-	my ($hol) = $_[0];
-	return 0 if $hol eq "WE";
-	unless ($hol =~ /^WE$|^BS$|^BF$|^AT$|^TG$|^UK$|^TEST$/) {
-		warn("calender <$hol> not implemented !");
+# British specialties
+sub UKspecial {
+	my ($y,$m,$d) = $_[0] =~ /(.{4})(..)(..)/;
+	return 1 if (first_week($d,$m,$y,1,5) || last_week($d,$m,$y,1,5) || last_week($d,$m,$y,1,8));
+	return 0;
+}
+
+# fixed holidays
+my %fixedHol = ("BS"=>{"0101"=>1,"0601"=>1,"0105"=>1,"1508"=>1,"2610"=>1,"0111"=>1,"0812"=>1,"2412"=>1,"2512"=>1,"2612"=>1},
+				"BF"=>{"0101"=>1,"0601"=>1,"0105"=>1,"1508"=>1,"2610"=>1,"0111"=>1,"0812"=>1,"2412"=>1,"2512"=>1,"2612"=>1},
+				"AT"=>{"0101"=>1,"0601"=>1,"0105"=>1,"1508"=>1,"2610"=>1,"0111"=>1,"0812"=>1,"2512"=>1,"2612"=>1},
+				"TG"=>{"0101"=>1,"0105"=>1,"2512"=>1,"2612"=>1},
+				"UK"=>{"0101"=>1,"2512"=>1,"2612"=>1}
+				);
+
+# easter holidays
+my %easterHol = ("BS"=>{"EM"=>1,"AS"=>1,"WM"=>1,"CC"=>1,"GF"=>1},
+				 "BF"=>{"EM"=>1,"AS"=>1,"WM"=>1,"CC"=>1},
+				 "AT"=>{"EM"=>1,"AS"=>1,"WM"=>1,"CC"=>1},
+				 "TG"=>{"EM"=>1,"GF"=>1},
+				 "UK"=>{"EM"=>1,"GF"=>1}
+				);
+
+# reference to functions for special holiday calculations
+my %specialHol = ("UK" => \&UKspecial);
+
+# adds calendar to DateUtil, first arg name of $cal, second arg fixed holidays hash, third easter holidays hash and fourth special function for additional calculations
+sub addCalendar ($$$$) {
+	my ($cal,$fixHol,$eastHol,$specialHolSub) = @_;
+	if (defined($fixedHol{$cal})) {
+		warn("calender <$cal> already implemented for fixed holidays !");
 		return 0;
 	}
-	return 1 if $hol eq "TEST"; # for testing purposes, here all days are holidays.
+	if (defined($easterHol{$cal})) {
+		warn("calender <$cal> already implemented for easter holidays !");
+		return 0;
+	}
+	if (defined($specialHol{$cal})) {
+		warn("calender <$cal> already implemented for additional calculations !");
+		return 0;
+	}
+	$fixedHol{$cal} = ($fixHol ? $fixHol : "");
+	$easterHol{$cal} = ($eastHol ? $eastHol : "");
+	$specialHol{$cal} = ($specialHolSub ? $specialHolSub : "");
+	return 1;
+}
+
+# check whether second arg is easter in passed calendar (first arg).
+# requires entry of calendar in %easterHol hash: "$Cal" => {"GF"=>1,"EM"=>1,"ES"=>1,"AS"=>1,"WM"=>1,"CC"=>1}
+sub is_easter ($$) {
+	my ($cal) = $_[0];
 	my ($y,$m,$d) = $_[1] =~ /(.{4})(..)(..)/;
-	# fixes holidays
-	my $fixedHol = {"BS"=>{"0101"=>1,"0601"=>1,"0105"=>1,"1508"=>1,"2610"=>1,"0111"=>1,"0812"=>1,"2412"=>1,"2512"=>1,"2612"=>1},
-					"BF"=>{"0101"=>1,"0601"=>1,"0105"=>1,"1508"=>1,"2610"=>1,"0111"=>1,"0812"=>1,"2412"=>1,"2512"=>1,"2612"=>1},
-					"AT"=>{"0101"=>1,"0601"=>1,"0105"=>1,"1508"=>1,"2610"=>1,"0111"=>1,"0812"=>1,"2512"=>1,"2612"=>1},
-					"TG"=>{"0101"=>1,"0105"=>1,"2512"=>1,"2612"=>1},
-					"UK"=>{"0101"=>1,"2512"=>1,"2612"=>1}};
-	# easter, first find easter sunday
+	# first find easter sunday using year
 	my $D = (((255 - 11 * ($y % 19)) - 21) % 30) + 21;
 	my $easter = timegm_modern(0,0,12,1,2,$y) + ($D + ($D > 48 ? 1 : 0) + 6 - (($y + int($y / 4) + $D + ($D > 48 ? 1 : 0) + 1) % 7))*86400;
+	return 1 if makeMD($easter) eq $d.$m and $easterHol{$cal}->{"EH"}; # easter sunday
 	# then the rest
-	my $goodfriday=makeMD($easter-2*86400);
-	my $easterMonday=makeMD($easter+1*86400);
-	my $ascensionday=makeMD($easter+39*86400);
-	my $whitmonday=makeMD($easter+50*86400);
-	my $corpuschristiday=makeMD($easter+60*86400);
-	# enter as required for calendar
-	my $easterHol = {"BS"=>{$easterMonday=>1,$ascensionday=>1,$whitmonday=>1,$corpuschristiday=>1,$goodfriday=>1},
-					 "BF"=>{$easterMonday=>1,$ascensionday=>1,$whitmonday=>1,$corpuschristiday=>1},
-					 "AT"=>{$easterMonday=>1,$ascensionday=>1,$whitmonday=>1,$corpuschristiday=>1},
-					 "TG"=>{$easterMonday=>1,$goodfriday=>1},
-					 "UK"=>{$easterMonday=>1,$goodfriday=>1}};
-	# British specialties
-	my $specialHol = 0;
-	$specialHol = (first_week($d,$m,$y,1,5) || last_week($d,$m,$y,1,5) || last_week($d,$m,$y,1,8)) if ($hol eq "UK");
-	if ($fixedHol->{$hol}->{$d.$m} or $easterHol->{$hol}->{$d.$m} or $specialHol) {
-		1;
-	} else {
-		0;
+	return 1 if makeMD($easter-2*86400) eq $d.$m and $easterHol{$cal}->{"GF"}; # good friday
+	return 1 if makeMD($easter+1*86400) eq $d.$m and $easterHol{$cal}->{"EM"}; # easter monday
+	return 1 if makeMD($easter+39*86400) eq $d.$m and $easterHol{$cal}->{"AS"}; # ascension day
+	return 1 if makeMD($easter+50*86400) eq $d.$m and $easterHol{$cal}->{"WM"}; # whitmonday
+	return 1 if makeMD($easter+60*86400) eq $d.$m and $easterHol{$cal}->{"CC"}; # corpus christi day
+	return 0;
+}
+
+# check whether second arg is holiday in passed calendar (first arg)
+sub is_holiday ($$) {
+	my ($cal) = $_[0];
+	return 0 if $cal eq "WE"; # weekends are checked with "is_weekend", so no holiday passed here!
+	my ($y,$m,$d) = $_[1] =~ /(.{4})(..)(..)/;
+	return 1 if $fixedHol{$cal}->{$d.$m};
+	return 1 if is_easter($cal,$_[1]);
+	return 1 if $specialHol{$cal} and $specialHol{$cal}->($_[1]);
+	unless ($fixedHol{$cal} or $easterHol{$cal} or $specialHol{$cal}) {
+		warn("calender <$cal> neither implemented in \$fixedHol{$cal} nor \$easterHol{$cal} nor \$specialHol{$cal} !");
+		return 0;
 	}
+	return 0;
 }
 
 sub last_week ($$$$;$) {
@@ -260,15 +344,15 @@ sub subtractDays ($$) {
 }
 
 sub subtractDaysHol ($$;$$) {
-	my ($date,$days,$template,$hol) = @_;
-	$hol="NO" if !$hol;
+	my ($date,$days,$template,$cal) = @_;
+	$cal="NO" if !$cal;
 	my ($y,$m,$d) = $date =~ /(.{4})(..)(..)/;
 	return undef if !$y or !$m or !$d;
 	# first subtract days
 	my $refdate = localtime(timelocal_modern(0,0,12,$d,$m-1,$y) - $days*24*60*60);
 	# then subtract further days as long weekend or holidays
-	if ($hol ne "NO") {
-		while ($refdate->wday() == 0 || $refdate->wday() == 6 || is_holiday($hol, sprintf("%04d%02d%02d", $refdate->year()+1900, $refdate->mon()+1, $refdate->mday()))) {
+	if ($cal ne "NO") {
+		while ($refdate->wday() == 0 || $refdate->wday() == 6 || is_holiday($cal, sprintf("%04d%02d%02d", $refdate->year()+1900, $refdate->mon()+1, $refdate->mday()))) {
 			$refdate = localtime(timelocal_modern(0,0,12,$refdate->mday(),$refdate->mon(),$refdate->year()+1900) - 24*60*60);
 		}
 	}
@@ -276,15 +360,15 @@ sub subtractDaysHol ($$;$$) {
 }
 
 sub addDaysHol ($$;$$) {
-	my ($date, $days, $template, $hol) = @_;
-	$hol="NO" if !$hol;
+	my ($date, $days, $template, $cal) = @_;
+	$cal="NO" if !$cal;
 	my ($y,$m,$d) = $date =~ /(.{4})(..)(..)/;
 	return undef if !$y or !$m or !$d;
 	# first add days
 	my $refdate = localtime(timelocal_modern(0,0,12,$d,$m-1,$y) + $days*24*60*60);
 	# then add further days as long weekend or holidays
-	if ($hol ne "NO") {
-		while ($refdate->wday() == 0 || $refdate->wday() == 6 || is_holiday($hol,sprintf("%04d%02d%02d", $refdate->year()+1900, $refdate->mon()+1, $refdate->mday()))) {
+	if ($cal ne "NO") {
+		while ($refdate->wday() == 0 || $refdate->wday() == 6 || is_holiday($cal,sprintf("%04d%02d%02d", $refdate->year()+1900, $refdate->mon()+1, $refdate->mday()))) {
 			$refdate = localtime(timelocal_modern(0,0,12,$refdate->mday(),$refdate->mon(),$refdate->year()+1900) + 24*60*60);
 		}
 	}
@@ -339,7 +423,7 @@ sub convertToThousendDecimal ($;$) {
 }
 
 sub get_dateseries ($$;$) {
-	my ($fromDate,$toDate,$hol) = @_;
+	my ($fromDate,$toDate,$cal) = @_;
 	my ($yf,$mf,$df) = $fromDate =~ /(.{4})(..)(..)/;
 	my ($yt,$mt,$dt) = $toDate =~ /(.{4})(..)(..)/;
 	my $from = timelocal_modern(0,0,12,$df,$mf-1,$yf);
@@ -348,8 +432,8 @@ sub get_dateseries ($$;$) {
 	for ($_= $from; $_<= $to; $_ += 24*60*60) {
 		my $date = localtime($_);
 		my $datestr = sprintf("%04d%02d%02d",$date->year()+1900,$date->mon()+1,$date->mday());
-		if ($hol) {
-			push @dateseries, $datestr if $date->wday() != 0 && $date->wday() != 6 && !is_holiday($hol,$datestr);
+		if ($cal) {
+			push @dateseries, $datestr if $date->wday() != 0 && $date->wday() != 6 && !is_holiday($cal,$datestr);
 		} else {
 			push @dateseries, $datestr;
 		}
@@ -384,19 +468,21 @@ sub convertEpochToYYYYMMDD ($) {
 1;
 __END__
 
+=encoding utf8
+
 =head1 NAME
 
 EAI::DateUtil - Date and Time helper functions for L<EAI::Wrap>
 
 =head1 SYNOPSIS
 
- %months = ("Jan" => "01","Feb" => "02","Mar" => "03","Apr" => "04","May" => "05","Jun" => "06","Jul" => "07","Aug" => "08","Sep" => "09","Oct" => "10","Nov" => "11","Dec" => "12");
- %monate = ("Jan" => "01","Feb" => "02","Mär" => "03","Apr" => "04","Mai" => "05","Jun" => "06","Jul" => "07","Aug" => "08","Sep" => "09","Okt" => "10","Nov" => "11","Dez" => "12");
-
+ monthsToInt ($mmm, $locale)
+ intToMonths ($m, $locale)
+ addLocaleMonths ($locale, $monthsArray)
  get_curdate ()
  get_curdatetime ()
  get_curdate_dot ()
- formatDate ($d, $m, $y, [$template])
+ formatDate ($y, $m, $d, [$template])
  formatDateFromYYYYMMDD($date, [$template])
  get_curdate_gen ([$template])
  get_curdate_dash ()
@@ -406,11 +492,13 @@ EAI::DateUtil - Date and Time helper functions for L<EAI::Wrap>
  get_lastdateYYYYMMDD ()
  get_lastdateDDMMYYYY ()
  is_first_day_of_month ($date YYYYMMDD)
- is_last_day_of_month ($date YYYYMMDD, [$hol])
+ is_last_day_of_month ($date YYYYMMDD, [$cal])
  get_last_day_of_month ($date YYYYMMDD)
  weekday ($date YYYYMMDD)
  is_weekend ($date YYYYMMDD)
- is_holiday ($hol, $date YYYYMMDD)
+ is_holiday ($cal, $date YYYYMMDD)
+ is_easter ($cal, $date YYYYMMDD)
+ addCalendar ($cal, $fixedHol hash, $easterHol .. hash, $specialFunction)
  first_week ($d,$m,$y,$day,[$month])
  first_weekYYYYMMDD ($date,$day,[$month])
  last_week ($d,$m,$y,$day,[$month])
@@ -420,10 +508,10 @@ EAI::DateUtil - Date and Time helper functions for L<EAI::Wrap>
  convertDateToMMM ($day, $mon, $year)
  convertToDDMMYYYY ($date YYYYMMDD)
  addDays ($day, $mon, $year, $dayDiff)
- addDaysHol ($date, $days, [$template, $hol])
+ addDaysHol ($date, $days, [$template, $cal])
  addDatePart ($date, $count, $datepart, [$template])
  subtractDays ($date, $days)
- subtractDaysHol ($date, $days, [$template, $hol])
+ subtractDaysHol ($date, $days, [$template, $cal])
  convertcomma ($number, $divideBy)
  convertToThousendDecimal($value, $ignoreDecimal)
  get_dateseries
@@ -439,13 +527,21 @@ EAI::DateUtil contains all date/time related API-calls.
 
 =over
 
-=item %months
+=item monthsToInt
 
-conversion hash english months -> numbers, usage: $months{"Oct"} equals 10
+convert from english/german/custom locale short months -> numbers, monthsToInt("Oct","EN") equals 10, monthsToInt("mär","GE") equals 3. months and locale are case insensitive.
 
-=item %monate
+=item intToMonths
 
-conversion hash german months -> numbers, usage: $monate{"Okt"} equals 10
+convert from int to english/german/custom locale months -> numbers, intToMonths(10,"EN") equals "Oct", intToMonths(3,"GE") equals "Mär". locale is case insensitive, month is returned with uppercase beginnen resp. as it was added (see below).
+
+=item addLocaleMonths
+
+adds custom locale $locale with ref to array $monthsArray to above conversion functions. locale is case insensitive.
+
+Example:
+
+ addLocaleMonths("FR",["Jan","Fév","Mars","Mai","Juin","Juil","Août","Sept","Oct","Nov","Déc"]);
 
 =item get_curdate
 
@@ -463,12 +559,14 @@ gets current date in format DD.MM.YYYY
 
 formats passed date (given in arguments $y,$m,$d) into format as defined in $template
 
- $d .. day part
- $m .. month part
  $y .. year part
+ $m .. month part
+ $d .. day part
  $template .. optional, date template with D for day, M for month and Y for year (e.g. D.M.Y for 01.02.2016),
               D and M is always 2 digit, Y always 4 digit; if empty/nonexistent defaults to "YMD"
               special formats are MMM und mmm als monthpart, here three letter month abbreviations in english (MMM) or german (mmm) are returned as month
+              additionally a locale can be passed in brackets with MMM and mmm, resulting in conversion to locale dependent months.
+              e.g. formatDate(2002,6,1,"Y-MMM-D[fr]") would yield 2002-Juin-01 for the addLocaleMonths given above.
 
 =item formatDateFromYYYYMMDD
 
@@ -514,7 +612,7 @@ returns 1 if first day of months, 0 else
 returns 1 if last day of month, 0 else
 
  $date .. date in format YYYYMMDD
- $hol .. optional, calendar for holidays used to get the last of month
+ $cal .. optional, calendar for holidays used to get the last of month
 
 =item get_last_day_of_month
 
@@ -538,9 +636,34 @@ returns 1 if saturday or sunday
 
 returns 1 if weekend or holiday
 
- $hol .. holiday calendar; currently supported: AT (Austria), TG (Target), UK (see is_holiday) and WE (for only weekends).
-         throws error if calendar not supported (Hashlookup).
+ $cal .. holiday calendar; currently supported: AT (Austria), TG (Target), UK (see is_holiday) and WE (for only weekends).
+         throws warning if calendar not supported (fixed lookups or additionally added). To add a calendar use addCalendar.
  $date .. date in format YYYYMMDD
+
+=item is_easter
+
+returns 1 if date is an easter holiday for that calendar
+
+ $cal .. holiday calendar;
+ $date .. date in format YYYYMMDD
+
+=item addCalendar
+
+add an additional calendar for calendar holiday dependent calculations
+
+ $cal .. name of holiday calendar to be added, warns if already existing (builtin)
+ $fixedHol .. hash of fixed holiday dates for that calendar (e.g. {"0105"=>1,"2512"=>1} for may day and christmas day)
+ $easterHol .. hash of easter holidays for that calendar (possible: {"GF"=>1,"EM"=>1,"ES"=>1,"AS"=>1,"WM"=>1,"CC"=>1}) = good friday,easter monday, easter sunday, ascension day, whitmonday, corpus christi day
+ $specialFunction .. pass ref to sub used for additional calculations; this sub should receive a date (YYYYMMDD) and return 1 for holiday, 0 otherwise.
+
+Example:
+
+ sub testCalSpecial {
+   my ($y,$m,$d) = $_[0] =~ /(.{4})(..)(..)/;
+   return 1 if $y eq "2002" and $m eq "09" and $d eq "08";
+   return 0;
+ }
+ addCalendar("TC",{"0101"=>1,"0105"=>1,"2512"=>1,"2612"=>1},{"EM"=>1,"GF"=>1},\&testCalSpecial);
 
 =item last_week
 
@@ -635,7 +758,7 @@ subtracts $days days from $date and regards weekends and holidays of passed cale
  $date .. date in format YYYYMMDD
  $days .. calendar days to subtract
  $template .. as in formatDate
- $hol .. holiday calendar; currently supported: NO (no holidays  = default if not given), rest as in is_holiday
+ $cal .. holiday calendar; currently supported: NO (no holidays  = default if not given), rest as in is_holiday
 
 =item addDaysHol
 
@@ -644,7 +767,7 @@ adds $days days to $date and regards weekends and holidays of passed calendar
  $date .. date in format YYYYMMDD
  $days .. calendar days to add
  $template .. as in formatDate
- $hol .. holiday calendar; currently supported: NO (no holidays = default if not given), rest as in is_holiday
+ $cal .. holiday calendar; currently supported: NO (no holidays = default if not given), rest as in is_holiday
  
 =item addDatePart
 
@@ -679,11 +802,11 @@ converts $value into thousand separated decimal (german format) ignoring decimal
 
 =item get_dateseries
 
-returns date values (format YYYYMMMDD) starting at $fromDate until $toDate, if a holiday calendar is set in $hol (optional), these holidays (incl. weekends) are regarded as well.
+returns date values (format YYYYMMMDD) starting at $fromDate until $toDate, if a holiday calendar is set in $cal (optional), these holidays (incl. weekends) are regarded as well.
  
  $fromDate .. start date
  $toDate .. end date
- $hol .. holiday calendar
+ $cal .. holiday calendar
 
 =item parseFromDDMMYYYY
 

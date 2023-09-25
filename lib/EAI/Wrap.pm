@@ -1,4 +1,4 @@
-package EAI::Wrap 0.6;
+package EAI::Wrap 0.8;
 
 use strict; use feature 'unicode_strings'; use warnings;
 use Exporter qw(import); use Data::Dumper qw(Dumper); use File::Copy qw(copy move); use Cwd qw(chdir); use Archive::Extract ();

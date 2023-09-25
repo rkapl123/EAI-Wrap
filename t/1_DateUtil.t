@@ -1,6 +1,6 @@
-use strict; use warnings; use Test::More;
+use strict; use warnings; use Test::More; use utf8;
 use EAI::DateUtil; use Time::Piece;
-use Test::More tests => 175;
+use Test::More tests => 188;
 
 $ENV{TZ} = 'UTC';
 scalar localtime;
@@ -176,4 +176,22 @@ is(get_last_day_of_month("20011215"),"20011231",'get_last_day_of_month 20011231'
 is(get_last_day_of_month("20010115"),"20010131",'get_last_day_of_month 20010131');
 is(get_last_day_of_month("20010215"),"20010228",'get_last_day_of_month 20010228');
 is(get_last_day_of_month("20040215"),"20040229",'get_last_day_of_month 20040229');
+sub testCalSpecial {
+	my ($y,$m,$d) = $_[0] =~ /(.{4})(..)(..)/;
+	return 1 if $y eq "2002" and $m eq "09" and $d eq "08";
+	return 0;
+}
+is(addCalendar("TC",{"0101"=>1,"0105"=>1,"2512"=>1,"2612"=>1},{"EM"=>1,"GF"=>1},\&testCalSpecial),1,'added test calendar');
+is(is_holiday("TC","20020908"),1,'special holiday testcalendar');
+is(is_holiday("TC","20120406"),1,'good friday testcalendar');
+is(is_holiday("TC","20120501"),1,'may day testcalendar');
+is(addLocaleMonths("FR",["jan","fév","mars","avr","mai","juin","juil","août","sept","oct","nov","déc"]),1,'added french short months');
+is(monthsToInt("jan","FR"),"01",'1 from french january');
+is(monthsToInt("jan","EN"),"01",'1 from english january');
+is(monthsToInt("fév","FR"),"02",'2 from french february');
+is(intToMonths(8,"FR"),"août",'french august from 8');
+is(monthsToInt("mär","GE"),"03",'3 from german march');
+is(intToMonths(3,"GE"),"Mär",'german march from 3');
+is(formatDate(2019,3,1,"D.mmm.Y[fr]"),"01.mars.2019",'formatDate D.mmm.Y french');
+is(formatDate(2019,3,1,"D.mmm.Y"),"01.Mär.2019",'formatDate D.mmm.Y german');
 done_testing();
