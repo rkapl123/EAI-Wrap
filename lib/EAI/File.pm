@@ -1,8 +1,8 @@
-package EAI::File 0.8;
+package EAI::File 0.9;
 
 use strict; use feature 'unicode_strings'; use warnings; no warnings 'uninitialized';
-use Exporter qw(import); use Text::CSV (); use Data::XLSX::Parser (); use Spreadsheet::ParseExcel (); use Spreadsheet::WriteExcel (); use Excel::Writer::XLSX (); use Data::Dumper qw(Dumper); use XML::LibXML (); use XML::LibXML::Debugging ();
-use Log::Log4perl qw(get_logger); use Time::localtime; use Scalar::Util qw(looks_like_number); use EAI::DateUtil qw(convertEpochToYYYYMMDD);
+use Exporter qw(import);use Text::CSV();use Data::XLSX::Parser();use Spreadsheet::ParseExcel();use Spreadsheet::WriteExcel();use Excel::Writer::XLSX();use Data::Dumper qw(Dumper);use XML::LibXML();use XML::LibXML::Debugging();
+use Log::Log4perl qw(get_logger);use Time::localtime;use Scalar::Util qw(looks_like_number);use EAI::DateUtil;
 
 our @EXPORT = qw(readText readExcel readXML writeText writeExcel);
 

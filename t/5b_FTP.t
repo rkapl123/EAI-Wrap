@@ -1,4 +1,15 @@
-# to use these testcases, activate a local FTP service and create $ENV{EAI_WRAP_CONFIG_PATH}."/Test/site.config with a user/pwd in the prefix ftp there and set env variable EAI_WRAP_AUTHORTEST.
+# to use these testcases, activate a local FTP service and create $ENV{EAI_WRAP_CONFIG_PATH}."/t/site.config with a user/pwd in the prefix ftp there and set env variable EAI_WRAP_AUTHORTEST.
+# following content of site.config is required:
+#%config = (
+#	sensitive => {ftp => {user => "yourSFTPUser", pwd => "yourSFTPUserPwd"}},
+#	folderEnvironmentMapping => {t => "t",},
+#	FTP => {
+#		port => yourPort,
+#		remoteHost => {ftp => "yourFTPHost"},
+#		maxConnectionTries => 5, # try at most to connect maxConnectionTries, then give up
+#	},
+#);
+
 use strict; use warnings;
 use EAI::FTP; use Test::File; use Test::More; use Data::Dumper; use File::Spec; use Text::Glob qw(match_glob);
 
@@ -21,7 +32,7 @@ Log::Log4perl::init("log.config");
 
 my %config;
 my $siteCONFIGFILE;
-open (CONFIGFILE, "<$ENV{EAI_WRAP_CONFIG_PATH}/Test/site.config") or die("couldn't open $ENV{EAI_WRAP_CONFIG_PATH}/Test/site.config");
+open (CONFIGFILE, "<$ENV{EAI_WRAP_CONFIG_PATH}/t/site.config") or die("couldn't open $ENV{EAI_WRAP_CONFIG_PATH}/t/site.config");
 {
 	local $/=undef;
 	$siteCONFIGFILE = <CONFIGFILE>;
@@ -40,9 +51,9 @@ login({maxConnectionTries => 2,FTPdebugLevel => 0,user => "unknown", pwd => "unk
 ok(!defined($ftpHandle),"expected login failure");
 
 # 2
-login({maxConnectionTries => 2,FTPdebugLevel => 0,user => $config{sensitive}{ftp}{user}, pwd => $config{sensitive}{ftp}{pwd}},"127.0.0.1");
+login({maxConnectionTries => 2,FTPdebugLevel => 0,user => $config{sensitive}{ftp}{user}, pwd => $config{sensitive}{ftp}{pwd}},$config{FTP}{remoteHost}{ftp});
 ($ftpHandle, $ftpHost) = getHandle();
-ok(defined($ftpHandle) && $ftpHost eq "127.0.0.1","login success");
+ok(defined($ftpHandle) && $ftpHost eq $config{FTP}{remoteHost}{ftp},"login success");
 setHandle($ftpHandle) or print "error: $@";
 
 # create an archive dir

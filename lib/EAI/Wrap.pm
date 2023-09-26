@@ -1,4 +1,4 @@
-package EAI::Wrap 0.8;
+package EAI::Wrap 0.9;
 
 use strict; use feature 'unicode_strings'; use warnings;
 use Exporter qw(import); use Data::Dumper qw(Dumper); use File::Copy qw(copy move); use Cwd qw(chdir); use Archive::Extract ();
@@ -16,11 +16,11 @@ BEGIN {
 use EAI::Common; use EAI::DateUtil; use EAI::DB; use EAI::File; use EAI::FTP;
 
 our @EXPORT = qw(%common %config %execute @loads @optload %opt removeFilesinFolderOlderX openDBConn openFTPConn redoFiles getLocalFiles getFilesFromFTP getFiles checkFiles extractArchives getAdditionalDBData readFileData dumpDataIntoDB markProcessed writeFileFromDB putFileInLocalDir markForHistoryDelete uploadFileToFTP uploadFileCMD uploadFile processingEnd processingPause moveFilesToHistory deleteFiles
-%months %monate get_curdate get_curdatetime get_curdate_dot formatDate formatDateFromYYYYMMDD get_curdate_dash get_curdate_gen get_curdate_dash_plus_X_years get_curtime get_curtime_HHMM get_lastdateYYYYMMDD get_lastdateDDMMYYYY is_first_day_of_month is_last_day_of_month get_last_day_of_month weekday is_weekend is_holiday first_week first_weekYYYYMMDD last_week last_weekYYYYMMDD convertDate convertDateFromMMM convertDateToMMM convertToDDMMYYYY addDays addDaysHol addMonths subtractDays subtractDaysHol convertcomma convertToThousendDecimal get_dateseries parseFromDDMMYYYY parseFromYYYYMMDD convertEpochToYYYYMMDD
+monthsToInt intToMonths addLocaleMonths get_curdate get_curdatetime get_curdate_dot formatDate formatDateFromYYYYMMDD get_curdate_dash get_curdate_gen get_curdate_dash_plus_X_years get_curtime get_curtime_HHMM get_lastdateYYYYMMDD get_lastdateDDMMYYYY is_first_day_of_month is_last_day_of_month get_last_day_of_month weekday is_weekend is_holiday is_easter addCalendar first_week first_weekYYYYMMDD last_week last_weekYYYYMMDD convertDate convertDateFromMMM convertDateToMMM convertToDDMMYYYY addDays addDaysHol addMonths subtractDays subtractDaysHol convertcomma convertToThousendDecimal get_dateseries parseFromDDMMYYYY parseFromYYYYMMDD convertEpochToYYYYMMDD
 newDBH beginWork commit rollback readFromDB readFromDBHash doInDB storeInDB deleteFromDB updateInDB getConn setConn
 readText readExcel readXML writeText writeExcel
 removeFilesOlderX fetchFiles putFile moveTempFile archiveFiles removeFiles login getHandle setHandle
-readConfigFile getSensInfo setupConfigMerge getOptions setupEAIWrap extractConfigs checkHash checkParam setupLogging checkStartingCond sendGeneralMail
+readConfigFile getSensInfo setupConfigMerge getOptions setupEAIWrap dumpFlat extractConfigs checkHash checkParam setupLogging checkStartingCond sendGeneralMail
 get_logger Dumper);
 
 # initialize module, reading all config files and setting basic execution variables
@@ -32,21 +32,22 @@ sub INIT {
 	$EAI_WRAP_CONFIG_PATH =~ s/\\/\//g;
 	$EAI_WRAP_SENS_CONFIG_PATH =~ s/\\/\//g;
 	print STDOUT "EAI_WRAP_CONFIG_PATH: ".($EAI_WRAP_CONFIG_PATH ? $EAI_WRAP_CONFIG_PATH : "not set").", EAI_WRAP_SENS_CONFIG_PATH: ".($EAI_WRAP_SENS_CONFIG_PATH ? $EAI_WRAP_SENS_CONFIG_PATH : "not set")."\n";
-	EAI::Common::readConfigFile($EAI_WRAP_CONFIG_PATH."/site.config");
+	EAI::Common::readConfigFile($EAI_WRAP_CONFIG_PATH."/site.config") if -e $EAI_WRAP_CONFIG_PATH."/site.config";
 	EAI::Common::readConfigFile($_) for sort glob($EAI_WRAP_CONFIG_PATH."/additional/*.config");
 	EAI::Common::readConfigFile($_) for sort glob($EAI_WRAP_SENS_CONFIG_PATH."/*.config");
 	
 	$execute{homedir} = File::Basename::dirname(File::Spec->rel2abs((caller(0))[1])); # folder, where the main script is being executed.
 	$execute{scriptname} = File::Basename::fileparse((caller(0))[1]);
 	my ($homedirnode) = ($execute{homedir} =~ /^.*[\\\/](.*?)$/);
+	print STDOUT "\$execute{homedir}: $execute{homedir}, \$execute{scriptname}: $execute{scriptname}, \$homedirnode: $homedirnode\n";
 	$execute{envraw} = $config{folderEnvironmentMapping}{$homedirnode};
 	if ($execute{envraw}) {
 		$execute{env} = $execute{envraw};
 	} else {
-		# if not configured, used default mapping (usually ''=>"Prod" for productionn)
+		# if not configured, use default mapping (usually ''=>"Prod" for production)
 		$execute{env} = $config{folderEnvironmentMapping}{''};
 	}
-	if ($execute{envraw}) { # for non-production environment read separate configs, if existing
+	if ($execute{envraw}) { # for folderEnvironmentMapping configured environments read separate configs, if existing
 		EAI::Common::readConfigFile($EAI_WRAP_CONFIG_PATH."/".$execute{envraw}."/site.config") if -e $EAI_WRAP_CONFIG_PATH."/".$execute{envraw}."/site.config";
 		EAI::Common::readConfigFile($_) for sort glob($EAI_WRAP_CONFIG_PATH."/".$execute{envraw}."/additional/*.config");
 		EAI::Common::readConfigFile($_) for sort glob($EAI_WRAP_SENS_CONFIG_PATH."/".$execute{envraw}."/*.config");
@@ -54,6 +55,7 @@ sub INIT {
 	EAI::Common::getOptions(); # getOptions before logging setup as centralLogHandling depends on interactive options passed
 	eval $config{executeOnInit} if $config{executeOnInit};
 	die("Error parsing config{executeOnInit} ($config{executeOnInit}): $@") if $@;
+	$execute{failcount}=0;
 	EAI::Common::setupLogging();
 }
 
@@ -79,8 +81,15 @@ sub openDBConn ($) {
 		$logger->error("specified DSN ('".$DB->{DSN}."') contains \$DB->{user}, which is neither set in \$DB->{user} nor in \$config{sensitive}{".$DB->{prefix}."}{user} !");
 		return 0;
 	};
-	EAI::DB::newDBH($DB,\%execute) or do {
-		$logger->error("couldn't open database connection for ".$DB->{DSN});
+	my ($DSNeval, $newDSN);
+	$DSNeval = $DB->{DSN};
+	$newDSN = eval qq{"$DSNeval"};
+	if (!$newDSN) {
+		$logger->error("error parsing \$DB->{DSN}(".$DB->{DSN}.") (couldn't interpolate all values):".$DSNeval);
+		return 0;
+	}
+	EAI::DB::newDBH($DB,$newDSN) or do {
+		$logger->error("couldn't open database connection for $newDSN");
 		return 0; # false means error in connection and signal to die...
 	};
 	return 1;
@@ -103,6 +112,7 @@ sub openFTPConn ($) {
 		return 0;
 	};
 	EAI::FTP::login($FTP,$FTP->{remoteHost}{$execute{env}}) or do {
+		no warnings 'uninitialized';
 		$logger->error("couldn't open ftp connection for \$FTP{remoteHost}{$execute{env}} (".$FTP->{remoteHost}{$execute{env}}.")");
 		return 0; # false means error in connection and signal to die...
 	};
@@ -724,7 +734,8 @@ sub processingEnd {
 		$retrySeconds = $common{task}{retrySecondsErr} if !$retrySeconds;
 		$retrySeconds = 60 if !$retrySeconds; # sanity fallback if retrySecondsErr not set
 		my $failcountFinish;
-		if ($execute{failcount} > $common{task}{retrySecondsXfails}) {
+		my $retrySecondsXfails = (defined($common{task}{retrySecondsXfails}) ? $common{task}{retrySecondsXfails} : 0);
+		if ($execute{failcount} > $retrySecondsXfails) {
 			$logger->info("fail count reached $common{task}{retrySecondsXfails}, so now retrySeconds are switched to $common{task}{retrySecondsErrAfterXfails}") if $common{task}{retrySecondsErrAfterXfails};
 			$failcountFinish = 1 if !$common{task}{retrySecondsErrAfterXfails};
 			$retrySeconds = $common{task}{retrySecondsErrAfterXfails};
@@ -740,7 +751,7 @@ sub processingEnd {
 			deleteFiles($execute{filesToDelete}) if $execute{filesToDelete};
 			$execute{processEnd}=1;
 		} else {
-			$logger->debug("execute:\n".Dumper(\%execute));
+			$logger->debug("execute:\n".EAI::Common::dumpFlat(\%execute,1));
 			$logger->info("Retrying in ".$retrySeconds." seconds because of ".($execute{retryBecauseOfError} ? "occurred error" : "planned retry")." until ".$endTime.", next run: ".$nextStartTime);
 			sleep $retrySeconds;
 		}
@@ -842,7 +853,7 @@ EAI::Wrap - framework for easy creation of Enterprise Application Integration ta
     	DB => {
     		server => {Prod => "ProdServer", Test => "TestServer"},
     		cutoffYr2000 => 60,
-    		DSN => 'driver={SQL Server};Server=$DB->{server}{$execute->{env}};database=$DB->{database};TrustedConnection=Yes;',
+    		DSN => 'driver={SQL Server};Server=$DB->{server}{$execute{env}};database=$DB->{database};TrustedConnection=Yes;',
     		schemaName => "dbo",
     	},
     	FTP => {
@@ -995,11 +1006,11 @@ remove files on FTP server being older than a time back (given in day/mon/year i
 
 =item openDBConn
 
-open a DB connection with the information provided in C<$DB-E<gt>{user}>, C<$DB-E<gt>{pwd}> (these can be provided by the sensitive information looked up using C<$DB-E<gt>{prefix}>), C<$DB-E<gt>{DSN}> and C<$execute{env}>, see L<EAI::DB::newDBH>
+open a DB connection with the information provided in C<$DB-E<gt>{user}>, C<$DB-E<gt>{pwd}> (these can be provided by the sensitive information looked up using C<$DB-E<gt>{prefix}>) and C<$DB-E<gt>{DSN}> which can be dynamically configured using information from C<$DB> itself, using C<$execute{env}> inside C<$DB-E<gt>{server}{*}>: C<'driver={SQL Server};Server=$DB-E<gt>{server}{$execute{env}};database=$DB-E<gt>{database};TrustedConnection=Yes;'>, also see L<EAI::DB::newDBH|/EAI::DB::newDBH>
 
 =item openFTPConn
 
-open a FTP connection with the information provided in C<$FTP-E<gt>{remoteHost}>, C<$FTP-E<gt>{user}>, C<$FTP-E<gt>{pwd}>, C<$FTP-E<gt>{hostkey}>, C<$FTP-E<gt>{privKey}> (these four can be provided by the sensitive information looked up using C<$FTP-E<gt>{prefix}>) and C<$execute{env}>, see L<EAI::FTP::login>
+open a FTP connection with the information provided in C<$FTP-E<gt>{remoteHost}>, C<$FTP-E<gt>{user}>, C<$FTP-E<gt>{pwd}>, C<$FTP-E<gt>{hostkey}>, C<$FTP-E<gt>{privKey}> (these four can be provided by the sensitive information looked up using C<$FTP-E<gt>{prefix}>) and C<$execute{env}>, also see L<EAI::FTP::login|/EAI::FTP::login>
 
 =item redoFiles
 
@@ -1129,7 +1140,7 @@ folders where uploaded files are historized, lookup key as checkLookup, default 
 
 =item logCheckHoliday
 
-calendar for business days in central logcheck/errmail sending
+calendar for business days in central logcheck/errmail sending. builtin calendars are AT (Austria), TG (Target), UK (United Kingdom) and WE (for only weekends). Calendars can be added with EAI::DateUtil::addCalendar
 
 =item logs_to_be_ignored_in_nonprod
 

@@ -1,4 +1,4 @@
-package EAI::FTP 0.8;
+package EAI::FTP 0.9;
 
 use strict; use feature 'unicode_strings'; use warnings;
 use Exporter qw(import); use Net::SFTP::Foreign (); use Net::SFTP::Foreign::Constants qw( SFTP_ERR_LOCAL_UTIME_FAILED ); use Net::FTP (); use Text::Glob qw(match_glob);
@@ -404,6 +404,7 @@ sub removeFiles ($) {
 sub login ($$) {
 	my ($FTP,$setRemoteHost) = @_;
 	my $logger = get_logger();
+	$setRemoteHost = "" if !defined($setRemoteHost);
 	if ($RemoteHost ne $setRemoteHost or !defined($ftp)) {
 		$RemoteHost = $setRemoteHost;
 		undef $ftp if defined($ftp); # close ftp connection if open.
@@ -421,7 +422,7 @@ sub login ($$) {
 	# quote passwords containing chars that can't be passed via windows shell to ssh_cmd (\"....\>...\")
 	my $pwd = $FTP->{pwd};
 	if ($^O =~ /MSWin/ and !$FTP->{dontUseQuoteSystemForPwd}) {
-		$pwd = Win32::ShellQuote::quote_system($pwd) if ($pwd =~ /[()"<>&]/);
+		$pwd = Win32::ShellQuote::quote_system($pwd) if ($pwd and $pwd =~ /[()"<>&]/);
 	}
 	my $debugLevel = $FTP->{FTPdebugLevel};
 	if (defined($FTP->{hostkey}) || defined($FTP->{privKey}) || $FTP->{SFTP}) {
@@ -429,7 +430,12 @@ sub login ($$) {
 			$logger->error("no \$FTP->{sshInstallationPath} defined!");
 			return 0;
 		}
+		if (!defined($FTP->{pwd}) and !$FTP->{privKey}) {
+			$logger->error("neither \$FTP->{pwd} nor \$FTP->{privKey} defined!");
+			return 0;
+		}
 		$logger->info("connecting to $RemoteHost using SFTP");
+		$logger->debug("FTP parameters:".Dumper($FTP));
 		my @moreparams;
 		push @moreparams, ("-hostkey", $FTP->{hostkey}) if $FTP->{hostkey};
 		push @moreparams, ("-i", $FTP->{privKey}) if $FTP->{privKey};
@@ -437,8 +443,8 @@ sub login ($$) {
 		push @moreparams, @{$FTP->{moreparams}} if $FTP->{moreparams} and ref($FTP->{moreparams}) eq "ARRAY";
 		push @moreparams, %{$FTP->{moreparams}} if $FTP->{moreparams} and ref($FTP->{moreparams}) eq "HASH";
 		do {
-			my $ssherr = File::Temp::tempfile() or $logger->error("couldn't open temp file for ftperrlog");
 			$logger->debug("connection try: $connectionTries");
+			my $ssherr = File::Temp::tempfile() or $logger->error("couldn't open temp file for ftperrlog");
 			# separate setting of debug level, additional to "-v" verbose
 			$Net::SFTP::Foreign::debug = $debugLevel;
 			no warnings 'Net::SFTP::Foreign'; # suppress warning on using insecure password authentication with plink
@@ -472,7 +478,8 @@ sub login ($$) {
 			return 0;
 		}
 	} else {
-		$logger->info("connecting to $RemoteHost using FTP");
+		$logger->info("connecting to $RemoteHost using FTP (neither defined \$FTP->{hostkey} nor defined \$FTP->{privKey} nor set \$FTP->{SFTP})");
+		$logger->debug("FTP parameters:".Dumper($FTP));
 		my $connectionTries = 0; my $loginSuccess;
 		do {
 			$ftp = Net::FTP->new($RemoteHost,Debug => $FTP->{FTPdebugLevel}, Port => ($FTP->{port} ? $FTP->{port} : '21'));

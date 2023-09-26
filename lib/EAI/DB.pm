@@ -1,4 +1,4 @@
-package EAI::DB 0.8;
+package EAI::DB 0.9;
 
 use strict; use feature 'unicode_strings'; use warnings;
 use Exporter qw(import); use DBI qw(:sql_types); use DBD::ODBC (); use Data::Dumper qw(Dumper); use Log::Log4perl qw(get_logger);
@@ -10,12 +10,8 @@ my $DSN = ""; # module static DSN string, will be dynamic when using OO-Style he
 
 # create a new handle for a database connection
 sub newDBH ($$) {
-	my ($DB,$execute) = @_;
+	my ($DB,$newDSN) = @_;
 	my $logger = get_logger();
-	my ($DSNeval, $newDSN);
-	$DSNeval = $DB->{DSN};
-	$newDSN = eval qq{"$DSNeval"};
-	$logger->error("error parsing \$DB->{DSN}(".$DB->{DSN}.") (couldn't interpolate all values):".$DSNeval) if !$newDSN;
 	if ($DSN ne $newDSN or !defined($dbh)) {
 		$DSN = $newDSN;
 		$logger->debug("DSN: $DSN");
@@ -165,17 +161,18 @@ sub doInDB ($;$) {
 sub storeInDB ($$) {
 	my ($DB, $data) = @_;
 	my $logger = get_logger();
-	my $tableName = ($DB->{tablename} ? $DB->{tablename} : "");
-	my $addID = ($DB->{addID} ? $DB->{addID} : "");
-	my $upsert= ($DB->{upsert} ? $DB->{upsert} : 0);
-	my $primkey = ($DB->{primkey} ? $DB->{primkey} : "");
-	my $ignoreDuplicateErrs = ($DB->{ignoreDuplicateErrs} ? $DB->{ignoreDuplicateErrs} : "");
-	my $deleteBeforeInsertSelector = ($DB->{deleteBeforeInsertSelector} ? $DB->{deleteBeforeInsertSelector} : "");
-	my $incrementalStore = ($DB->{incrementalStore} ? $DB->{incrementalStore} : "");
-	my $doUpdateBeforeInsert = ($DB->{doUpdateBeforeInsert} ? $DB->{doUpdateBeforeInsert} : "");
-	my $debugKeyIndicator = ($DB->{debugKeyIndicator} ? $DB->{debugKeyIndicator} : "");
+	my $tableName = $DB->{tablename};
+	my $addID = $DB->{addID};
+	my $upsert= $DB->{upsert};
+	my $primkey = $DB->{primkey};
+	my $ignoreDuplicateErrs = $DB->{ignoreDuplicateErrs};
+	my $deleteBeforeInsertSelector = $DB->{deleteBeforeInsertSelector};
+	my $incrementalStore = $DB->{incrementalStore};
+	my $doUpdateBeforeInsert = $DB->{doUpdateBeforeInsert};
+	my $debugKeyIndicator = $DB->{debugKeyIndicator};
 
 	eval {
+		no warnings 'uninitialized';
 		my @keycolumns = split "AND", $primkey;
 		map { s/=//; s/\?//; s/ //g;} @keycolumns;
 		$logger->debug("tableName:$tableName,addID:$addID,upsert:$upsert,primkey:$primkey,ignoreDuplicateErrs:$ignoreDuplicateErrs,deleteBeforeInsertSelector:$deleteBeforeInsertSelector,incrementalStore:$incrementalStore,doUpdateBeforeInsert:$doUpdateBeforeInsert,debugKeyIndicator:$debugKeyIndicator");
@@ -201,7 +198,6 @@ sub storeInDB ($$) {
 		my $i=0; my @columns;
 		$logger->trace("type info:\n".Dumper($dbh->type_info("SQL_ALL_TYPES"))) if $logger->is_trace; # all available data type informations of DBD:ODBC driver
 		for (keys %{$coldefs}) {
-			no warnings 'uninitialized';
 			if ($coldefs->{$_}{"COLUMN_DEF"} =~ /identity/ or $coldefs->{$_}{"TYPE_NAME"} =~ /identity/) { # for identity (auto incrementing) fields no filling needed
 				$logger->trace("TYPE_NAME for identity field ".$_.':'.$coldefs->{$_}{"TYPE_NAME"}) if $logger->is_trace;
 			} else {
@@ -335,7 +331,7 @@ sub storeInDB ($$) {
 					$affectedRows =~ s/E0//;
 					# mark deleteBeforeInsertSelector as executed for these data
 					$beforeInsert{$deleteBeforeInsertSelector} = 1;
-					$logger->info("entering data into $schemaName.$tableName after delete before insert, deleted rows: $affectedRows ($DBI::errstr)");
+					$logger->info("entering data into $schemaName.$tableName after delete before insert, deleted rows: $affectedRows");
 				}
 				if ($logger->is_trace) {
 					$logger->trace("data to be inserted:");
@@ -547,7 +543,7 @@ EAI::DB - Database wrapper functions (for DBI / DBD::ODBC)
 
 =head1 SYNOPSIS
 
- newDBH ($DB,$execute)
+ newDBH ($DB,$newDSN)
  beginWork ()
  commit ()
  rollback ()
@@ -573,7 +569,7 @@ EAI::DB contains all database related API-calls. This is for creating a database
 create a new handle for a database connection
 
  $DB .. hash with connection information like server, database
- $execute .. additional hash with execution information, mainly used for interpolation in DSN, especially environment: 'driver={SQL Server};Server=$DB->{server}{$execute->{env}};...'
+ $newDSN .. new DSN to be used for connection
 
  returns 0 on error, 1 if OK (handle is stored internally for further usage)
 

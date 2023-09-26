@@ -14,3 +14,5 @@
 	- fixed trial Email::MIME leftover, added possibility to add custom calendars in DateUtil and refactored is_holiday.
 0.08  Mon Sep 25 24:00:00 2023
 	- added possibility to add custom locales in DateUtil, removed exported locale hashes and replaced with accessor functions.
+0.09  Tue Sep 26 23:00:00 2023
+	- refactored flat Dumper into function, moved site.config for automated tests into $ENV{EAI_WRAP_CONFIG_PATH}/t, decoupled EAI::DB completely from EAI::Wrap (no $execute dependency)

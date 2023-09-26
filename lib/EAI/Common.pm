@@ -1,4 +1,4 @@
-package EAI::Common 0.8;
+package EAI::Common 0.9;
 
 use strict; use feature 'unicode_strings'; use warnings; no warnings 'uninitialized';
 use Exporter qw(import); use EAI::DateUtil qw(get_curdate is_holiday); use Data::Dumper qw(Dumper); use Getopt::Long qw(:config no_ignore_case); use Log::Log4perl qw(get_logger); use MIME::Lite (); use Scalar::Util qw(looks_like_number); use Module::Refresh ();
@@ -7,7 +7,7 @@ BEGIN {
 	if ($^O =~ /MSWin/) {require Win32::Console::ANSI; Win32::Console::ANSI->import();}
 }
 
-our @EXPORT = qw($EAI_WRAP_CONFIG_PATH $EAI_WRAP_SENS_CONFIG_PATH %common %config %execute @loads @optload %opt readConfigFile getSensInfo setupConfigMerge getOptions setupEAIWrap extractConfigs checkHash checkParam getLogFPathForMail getLogFPath MailFilter setErrSubject setupLogging checkStartingCond sendGeneralMail looks_like_number get_logger);
+our @EXPORT = qw($EAI_WRAP_CONFIG_PATH $EAI_WRAP_SENS_CONFIG_PATH %common %config %execute @loads @optload %opt readConfigFile getSensInfo setupConfigMerge getOptions setupEAIWrap dumpFlat extractConfigs checkHash checkParam getLogFPathForMail getLogFPath MailFilter setErrSubject setupLogging checkStartingCond sendGeneralMail looks_like_number get_logger);
 
 my %hashCheck = (
 	common => {
@@ -26,7 +26,7 @@ my %hashCheck = (
 		fromaddress => "", # from address for central logcheck/errmail sending, also used as default sender address for sendGeneralMail
 		historyFolder => {"" => "default"}, # folders where downloaded files are historized, lookup key as checkLookup, default in "" =>
 		historyFolderUpload => {"" => "default"}, # folders where uploaded files are historized, lookup key as checkLookup, default in "" =>
-		logCheckHoliday => "", # calendar for business days in central logcheck/errmail sending
+		logCheckHoliday => "", # calendar for business days in central logcheck/errmail sending. builtin calendars are AT (Austria), TG (Target), UK (United Kingdom) and WE (for only weekends). Calendars can be added with EAI::DateUtil::addCalendar
 		logs_to_be_ignored_in_nonprod => '', # logs to be ignored in central logcheck/errmail sending
 		logRootPath => {"" => "default"}, # paths to log file root folders (environment is added to that if non production), lookup key as checkLookup, default in "" =>
 		redoDir => {"" => "default"}, # folders where files for redo are contained, lookup key as checkLookup, default in "" =>
@@ -411,10 +411,10 @@ sub checkParam ($$) {
 	my ($subhashname) = split /=/, Dumper($subhash);
 	$subhashname =~ s/\$//;
 	if (!defined($subhash->{$keytoCheck})) {
-		$logger->error("key $keytoCheck not defined in subhash ".Dumper($subhash));
+		$logger->error("key $keytoCheck not defined in subhash ".dumpFlat($subhash,1));
 		return 0;
 	} elsif (!$subhash->{$keytoCheck} and !looks_like_number($hashCheck{$subhashname}{$keytoCheck})) {
-		$logger->error("value of key $keytoCheck empty in subhash ".Dumper($subhash));
+		$logger->error("value of key $keytoCheck empty in subhash ".dumpFlat($subhash,1));
 		return 0;
 	}
 	return 1;
@@ -501,25 +501,30 @@ sub setupEAIWrap {
 	my $logger = get_logger();
 	setupConfigMerge(); # %config (from site.config, amended with command line options) and %common (from process script, amended with command line options) are merged into %common and all @loads (amended with command line options)
 	# starting log entry: process script name + %common parameters, used for process monitoring (%config is not written due to sensitive information)
-	$Data::Dumper::Indent = 0; # temporarily flatten dumper output for single line
-	$Data::Dumper::Sortkeys = 1; # sort keys to get outputs easier to read
-	my $configdump = Dumper(\%common);
-	$configdump =~ s/\s+//g;$configdump =~ s/\$VAR1=//;$configdump =~ s/,'/,/g;$configdump =~ s/{'/{/g;$configdump =~ s/'=>/=>/g; # compress information
-	my $exedump = Dumper(\%execute);
-	$exedump =~ s/\s+//g;$exedump =~ s/\$VAR1=//;$exedump =~ s/,'/,/g;$exedump =~ s/{'/{/g;$exedump =~ s/'=>/=>/g; # compress information
 	$logger->info("==============================================================================================");
-	$logger->info("started $execute{scriptname} in $execute{homedir} (environment $execute{env}), execute parameters: $exedump common parameters: $configdump");
+	$logger->info("started $execute{scriptname} in $execute{homedir} (environment $execute{env}) ... execute parameters: ".dumpFlat(\%execute,1,1)." ... common parameters: ".dumpFlat(\%common,1,1));
 	if ($logger->is_debug) {
-		for my $i (0..$#loads) {
-			my $loaddump = Dumper($loads[$i]);
-			$loaddump =~ s/\s+//g;$loaddump =~ s/\$VAR1=//;$loaddump =~ s/,'/,/g;$loaddump =~ s/{'/{/g;$loaddump =~ s/'=>/=>/g; # compress information
-			$logger->debug("load $i parameters: $loaddump");
-		}
+		$logger->debug("load $_ parameters: ".dumpFlat($loads[$_],1,1)) for (0..$#loads);
 	}
-	$Data::Dumper::Indent = 2;
 	# check starting conditions and exit if met (returned true)
 	checkStartingCond(\%common) and exit 0;
 	setErrSubject("General EAI.Wrap script execution"); # general context after setup of EAI.Wrap
+}
+
+# returned Data::Dumpered datastructure given in $arg flattened, sorted (if $sortDump given) and compressed (if $compressDump given)
+sub dumpFlat {
+	my $arg = shift;
+	my $sortDump = shift;
+	my $compressDump = shift;
+	$Data::Dumper::Indent = 0; # temporarily flatten dumper output for single line
+	$Data::Dumper::Sortkeys = 1 if $sortDump; # sort keys to get outputs easier to read
+	my $dump = Dumper($arg);
+	$dump =~ s/\$VAR1=//;
+	if ($compressDump) {
+		$dump =~ s/\s+//g;$dump =~ s/,'/,/g;$dump =~ s/{'/{/g;$dump =~ s/'=>/=>/g; # compress information
+	}
+	$Data::Dumper::Indent = 2;
+	return $dump;
 }
 
 # refresh modules and logging config for changes
@@ -536,7 +541,7 @@ sub checkStartingCond ($) {
 	my $logger = get_logger();
 	my ($task) = extractConfigs("checking starting conditions",$arg,"task");
 	my $curdate = get_curdate();
-	$logger->debug("checkStartingCond for \$curdate: $curdate, task config:".Dumper($task));
+	$logger->debug("checkStartingCond for \$curdate: $curdate, task config:".dumpFlat($task,1));
 	# skipHolidays is either a calendar or 1 (then defaults to $task->{skipHolidaysDefault})
 	my $holidayCal = $task->{skipHolidays} if $task->{skipHolidays};
 	# skipForFirstBusinessDate is for "wait with execution for first business date", either this is a calendar or 1 (then calendar is skipHolidaysDefault), this cannot be used together with skipHolidays
