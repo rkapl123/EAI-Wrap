@@ -1,4 +1,4 @@
-package EAI::Wrap 0.9;
+package EAI::Wrap 0.10;
 
 use strict; use feature 'unicode_strings'; use warnings;
 use Exporter qw(import); use Data::Dumper qw(Dumper); use File::Copy qw(copy move); use Cwd qw(chdir); use Archive::Extract ();
@@ -957,7 +957,7 @@ list of hashes defining specific load processes within the task script. Each has
 
 In the above mentioned hashes can be five categories (sub-hashes): L<DB|/DB>, L<File|/File>, L<FTP|/FTP>, L<process|/process> and L<task|/task>. These allow further parameters to be set for the respective parts of EAI::Wrap (L<EAI::DB>, L<EAI::File> and L<EAI::FTP>), process parameters and task parameters. The parameters are described in detail in section L<CONFIGURATION REFERENCE|/CONFIGURATION REFERENCE>.
 
-The L<process|/process> category is on the one hand used to pass information within each process (data, additionalLookupData, filenames, hadErrors or commandline parameters starting with interactive), on the other hand for additional configurations not suitable for L<DB|/DB>, L<File|/File> or L<FTP|/FTP> (e.g. L<uploadCMD|/uploadCMD>). The L<task|/task> category contains parameters used on the task script level and is therefore only allowed in C<%config> and C<%common>. It contains parameters for skipping, retrying and redoing the whole task script.
+The L<process|/process> category is on the one hand used to pass information within each process (data, additionalLookupData, filenames, hadErrors or custom commandline parameters starting with interactive), on the other hand for additional configurations not suitable for L<DB|/DB>, L<File|/File> or L<FTP|/FTP> (e.g. L<uploadCMD|/uploadCMD>). The L<task|/task> category contains parameters used on the task script level and is therefore only allowed in C<%config> and C<%common>. It contains parameters for skipping, retrying and redoing the whole task script.
 
 The settings in DB, File, FTP and task are "merge" inherited in a cascading manner (i.e. missing parameters are merged, parameters already set below are not overwritten):
 
@@ -996,83 +996,119 @@ L<getLocalFiles|/getLocalFiles>, L<getFilesFromFTP|/getFilesFromFTP>, L<getFiles
 
 After the first successful run of the task, C<$execute{firstRunSuccess}> is set to prevent any error messages resulting of files having been moved/removed while rerunning the task until the defined planned time (C<task =E<gt> {plannedUntil =E<gt> "HHMM"}>) has been reached.
 
-=item INIT ()
+=item INIT
 
 The INIT procedure is executed at the EAI::Wrap module initialization (when EAI::Wrap is used in the task script) and loads the site configuration, starts logging and reads commandline options. This means that everything passed to the script via command line may be used in the definitions, especially the C<task{interactive.*}> parameters, here the name and the type of the parameter are not checked by the consistency checks (all other parameters not allowed or having the wrong type would throw an error).
 
 =item removeFilesinFolderOlderX
 
-remove files on FTP server being older than a time back (given in day/mon/year in C<remove =E<gt> {removeFolders =E<gt> ["",""], day=E<gt>, mon=E<gt>, year=E<gt>1}>), see L<EAI::FTP::removeFilesOlderX>
+remove files on FTP server being older than a time back (given in day/mon/year in C<remove =E<gt> {removeFolders =E<gt> ["",""], day=E<gt>, mon=E<gt>, year=E<gt>1}>), see L<EAI::FTP::removeFilesOlderX|EAI::FTP/removeFilesOlderX>
 
-=item openDBConn
+=item openDBConn ($)
 
-open a DB connection with the information provided in C<$DB-E<gt>{user}>, C<$DB-E<gt>{pwd}> (these can be provided by the sensitive information looked up using C<$DB-E<gt>{prefix}>) and C<$DB-E<gt>{DSN}> which can be dynamically configured using information from C<$DB> itself, using C<$execute{env}> inside C<$DB-E<gt>{server}{*}>: C<'driver={SQL Server};Server=$DB-E<gt>{server}{$execute{env}};database=$DB-E<gt>{database};TrustedConnection=Yes;'>, also see L<EAI::DB::newDBH|/EAI::DB::newDBH>
+argument $arg (ref to current load or common)
 
-=item openFTPConn
+open a DB connection with the information provided in C<$DB-E<gt>{user}>, C<$DB-E<gt>{pwd}> (these can be provided by the sensitive information looked up using C<$DB-E<gt>{prefix}>) and C<$DB-E<gt>{DSN}> which can be dynamically configured using information from C<$DB> itself, using C<$execute{env}> inside C<$DB-E<gt>{server}{*}>: C<'driver={SQL Server};Server=$DB-E<gt>{server}{$execute{env}};database=$DB-E<gt>{database};TrustedConnection=Yes;'>, also see L<EAI::DB::newDBH|EAI::DB/newDBH>
 
-open a FTP connection with the information provided in C<$FTP-E<gt>{remoteHost}>, C<$FTP-E<gt>{user}>, C<$FTP-E<gt>{pwd}>, C<$FTP-E<gt>{hostkey}>, C<$FTP-E<gt>{privKey}> (these four can be provided by the sensitive information looked up using C<$FTP-E<gt>{prefix}>) and C<$execute{env}>, also see L<EAI::FTP::login|/EAI::FTP::login>
+=item openFTPConn ($)
 
-=item redoFiles
+argument $arg (ref to current load or common)
+
+open a FTP connection with the information provided in C<$FTP-E<gt>{remoteHost}>, C<$FTP-E<gt>{user}>, C<$FTP-E<gt>{pwd}>, C<$FTP-E<gt>{hostkey}>, C<$FTP-E<gt>{privKey}> (these four can be provided by the sensitive information looked up using C<$FTP-E<gt>{prefix}>) and C<$execute{env}>, also see L<EAI::FTP::login|EAI::FTP/login>
+
+=item redoFiles ($)
+
+argument $arg (ref to current load or common)
 
 redo file from redo directory if specified (C<$common{task}{redoFile}> is being set), this is also being called by getLocalFiles and getFilesFromFTP. Arguments are fetched from common or loads[i], using File parameter.
 
-=item getLocalFiles
+=item getLocalFiles ($)
+
+argument $arg (ref to current load or common)
 
 get local file(s) from source into homedir, uses C<$File-E<gt>{filename}>, C<$File-E<gt>{extension}> and C<$File-E<gt>{avoidRenameForRedo}>. Arguments are fetched from common or loads[i], using File parameter.
 
-=item getFilesFromFTP
+=item getFilesFromFTP ($)
+
+argument $arg (ref to current load or common)
 
 get file/s (can also be a glob for multiple files) from FTP into homedir and extract archives if needed. Arguments are fetched from common or loads[i], using File and FTP parameters.
 
-=item getFiles
+=item getFiles ($)
+
+argument $arg (ref to current load or common)
 
 combines above two procedures in a general procedure to get files from FTP or locally. Arguments are fetched from common or loads[i], using File and FTP parameters.
 
-=item checkFiles
+=item checkFiles ($)
+
+argument $arg (ref to current load or common)
 
 check files for continuation of processing and extract archives if needed. Arguments are fetched from common or loads[i], using File parameter. The processed files are put into process->{filenames}
 
-=item extractArchives
+=item extractArchives ($)
+
+argument $arg (ref to current load or common)
 
 extract files from archive. Arguments are fetched from common or loads[i], using only the process->{filenames} parameter that was filled by checkFiles. 
 
-=item getAdditionalDBData
+=item getAdditionalDBData ($;$)
+
+arguments $arg (ref to current load or common) and optional $refToDataHash
 
 get additional data from DB. Arguments are fetched from common or loads[i], using DB and process parameters. You can also pass an optional ref to a data hash parameter to store the retrieved data there instead of C<$process->{additionalLookupData}>
 
-=item readFileData
+=item readFileData ($)
+
+argument $arg (ref to current load or common)
 
 read data from a file. Arguments are fetched from common or loads[i], using File parameter.
 
-=item dumpDataIntoDB
+=item dumpDataIntoDB ($)
+
+argument $arg (ref to current load or common)
 
 store data into Database. Arguments are fetched from common or loads[i], using DB and File (for emptyOK) parameters.
 
-=item markProcessed
+=item markProcessed ($)
+
+argument $arg (ref to current load or common)
 
 mark files as being processed depending on whether there were errors, also decide on removal/archiving of downloaded files. Arguments are fetched from common or loads[i], using File parameter.
 
-=item writeFileFromDB
+=item writeFileFromDB ($)
+
+argument $arg (ref to current load or common)
 
 create Data-files from Database. Arguments are fetched from common or loads[i], using DB and File parameters.
 
-=item putFileInLocalDir
+=item putFileInLocalDir ($)
+
+argument $arg (ref to current load or common)
 
 put files into local folder if required. Arguments are fetched from common or loads[i], using File parameter.
 
-=item markForHistoryDelete
+=item markForHistoryDelete ($)
+
+argument $arg (ref to current load or common)
 
 mark to be removed or be moved to history after upload. Arguments are fetched from common or loads[i], using File parameter.
 
-=item uploadFileToFTP
+=item uploadFileToFTP ($)
+
+argument $arg (ref to current load or common)
 
 upload files to FTP. Arguments are fetched from common or loads[i], using FTP and File parameters.
 
-=item uploadFileCMD
+=item uploadFileCMD ($)
+
+argument $arg (ref to current load or common)
 
 upload files using an upload command program. Arguments are fetched from common or loads[i], using File and process parameters.
 
-=item uploadFile
+=item uploadFile ($)
+
+argument $arg (ref to current load or common)
 
 combines above two procedures in a general procedure to upload files via FTP or CMD or to put into local dir. Arguments are fetched from common or loads[i], using File and process parameters
 
@@ -1080,17 +1116,21 @@ combines above two procedures in a general procedure to upload files via FTP or 
 
 final processing steps for processEnd (cleanup, FTP removal/archiving) or retry after pausing. No context argument as this always depends on all loads and/or the common definition
 
-=item processingPause
+=item processingPause ($)
 
 generally available procedure for pausing processing, argument $pauseSeconds gives the delay
 
 =item moveFilesToHistory (;$)
 
+optional argument $archiveTimestamp
+
 move transferred files marked for moving (filesToMoveinHistory/filesToMoveinHistoryUpload) into history and/or historyUpload folder. Optionally a custom timestamp can be passed.
  
 =item deleteFiles ($)
 
-delete transferred files. The filenames are passed in a ref to array
+argument $filenames, ref to array
+
+delete transferred files given in $filenames
 
 =back
 

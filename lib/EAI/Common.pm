@@ -1,4 +1,4 @@
-package EAI::Common 0.9;
+package EAI::Common 0.10;
 
 use strict; use feature 'unicode_strings'; use warnings; no warnings 'uninitialized';
 use Exporter qw(import); use EAI::DateUtil qw(get_curdate is_holiday); use Data::Dumper qw(Dumper); use Getopt::Long qw(:config no_ignore_case); use Log::Log4perl qw(get_logger); use MIME::Lite (); use Scalar::Util qw(looks_like_number); use Module::Refresh ();
@@ -389,7 +389,7 @@ sub checkHash ($$) {
 				} else {
 					# check type for existing keys, if explicitly not defined then ignore...
 					if (defined($hash->{$defkey})) {
-						die "wrong reference type for value: \$".$hashName."{".$defkey."}: ".ref($hashCheck{$hashName}{$defkey})." not like passed:".ref($hash->{$defkey}).",".$locStr if (ref($hashCheck{$hashName}{$defkey}) ne ref($hash->{$defkey}) && !$ignoreType{$hashName.$defkey});
+						die "wrong reference type for value: \$".$hashName."{".$defkey."}: ".ref($hashCheck{$hashName}{$defkey})." is not the same as the passed one:".ref($hash->{$defkey}).",".$locStr if (ref($hashCheck{$hashName}{$defkey}) ne ref($hash->{$defkey}) && !$ignoreType{$hashName.$defkey});
 						die "wrong type for value: \$".$hashName."{".$defkey."},".$locStr if (looks_like_number($hashCheck{$hashName}{$defkey}) ne looks_like_number($hash->{$defkey}) && !$ignoreType{$hashName.$defkey});
 					}
 				}
@@ -447,14 +447,18 @@ sub setupLogging {
 	# get logRootPath, historyFolder, historyFolderUpload and redoDir from lookups in config.
 	# if they are not in the script home directory (having an absolute path) then build environment-path separately for end folder (script home directory is already in its environment)
 	for my $foldKey ("redoDir","logRootPath","historyFolder","historyFolderUpload") {
-		my $folder = $config{$foldKey}{$execute{scriptname}.$execute{addToScriptName}};
+		warn ("\$config{$foldKey} is not a hash, cannot get $foldKey from it !") if (ref($config{$foldKey}) ne "HASH");
+		my $folder = $config{$foldKey}{$execute{scriptname}.$execute{addToScriptName}} if (ref($config{$foldKey}) eq "HASH");
 		my $defaultFolder;
 		if (!$folder) {
 			$folder = $config{$foldKey}{""}; # take default, if no lookup defined for script
 			$defaultFolder = 1;
 		}
-		if ($folder =~ /^(\S:)*[\\|\/](.*?)$/) {
-			my ($folderPath,$endFolder) = ($folder =~ /(.*)[\\|\/](.*?)$/); # both slash as well as backslash act as path separator for last part
+		$folder = $opt{config}{$foldKey} if $opt{config}{$foldKey}; # also possible to override these settings via options
+		# convert backslash to slash to avoid problems in string handling (unicode ...)
+		$folder =~ s/\\/\//g;
+		if ($folder =~ /^(\S:)*\/(.*?)$/ and !$opt{config}{$foldKey}) {
+			my ($folderPath,$endFolder) = ($folder =~ /(.*)\/(.*?)$/); # slash acts as path separator for last part
 			# default Folder is built differently: folderPath/endFolder/environ instead of folderPath/environ/endFolder
 			$execute{$foldKey} = ($defaultFolder ? $folderPath."/".$endFolder.($execute{envraw} ? "/".$execute{envraw} : "") : $folderPath.($execute{envraw} ? "/".$execute{envraw} : "")."/".$endFolder);
 		} else {
@@ -493,6 +497,9 @@ sub setupLogging {
 			$logger->error("no errmailaddress found for ".$execute{scriptname}.$execute{addToScriptName}.", no entry found in \$config{checkLookup}{$execute{scriptname}.$execute{addToScriptName}}");
 		}
 		setErrSubject("Setting up EAI.Wrap"); # general context after logging initialization: setup of EAI.Wrap by script
+	} else {
+		# remove any defined mail appenders
+		undef(Log::Log4perl->appenders()->{"MAIL"}) if Log::Log4perl->appenders()->{"MAIL"};
 	}
 }
 
@@ -505,6 +512,7 @@ sub setupEAIWrap {
 	$logger->info("started $execute{scriptname} in $execute{homedir} (environment $execute{env}) ... execute parameters: ".dumpFlat(\%execute,1,1)." ... common parameters: ".dumpFlat(\%common,1,1));
 	if ($logger->is_debug) {
 		$logger->debug("load $_ parameters: ".dumpFlat($loads[$_],1,1)) for (0..$#loads);
+		$logger->trace("config parameters: ".dumpFlat(\%config,1,1)) if !defined($config{sensitive}) and $logger->is_trace();
 	}
 	# check starting conditions and exit if met (returned true)
 	checkStartingCond(\%common) and exit 0;
@@ -512,23 +520,23 @@ sub setupEAIWrap {
 }
 
 # returned Data::Dumpered datastructure given in $arg flattened, sorted (if $sortDump given) and compressed (if $compressDump given)
-sub dumpFlat {
+sub dumpFlat ($;$$) {
 	my $arg = shift;
 	my $sortDump = shift;
 	my $compressDump = shift;
 	$Data::Dumper::Indent = 0; # temporarily flatten dumper output for single line
 	$Data::Dumper::Sortkeys = 1 if $sortDump; # sort keys to get outputs easier to read
 	my $dump = Dumper($arg);
-	$dump =~ s/\$VAR1=//;
 	if ($compressDump) {
 		$dump =~ s/\s+//g;$dump =~ s/,'/,/g;$dump =~ s/{'/{/g;$dump =~ s/'=>/=>/g; # compress information
 	}
+	$dump =~ s/\$VAR1=//;
 	$Data::Dumper::Indent = 2;
 	return $dump;
 }
 
 # refresh modules and logging config for changes
-sub refresh() {
+sub refresh {
 	# refresh modules to enable correction of processing without restart
 	Module::Refresh->refresh;
 	# also check for changes in logging configuration
@@ -584,6 +592,7 @@ sub checkStartingCond ($) {
 sub sendGeneralMail ($$$$$$;$$$$) {
 	my ($From, $To, $Cc, $Bcc, $Subject, $Data, $Type, $Encoding, $AttachType, $AttachFile) = @_;
 	my $logger = get_logger();
+	$logger->error("cannot send mail as \$config{smtpServer} not set") if !$config{smtpServer};
 	$logger->info("sending general mail From:".($From ? $From : $config{fromaddress}).", To:".($execute{envraw} ? $config{testerrmailaddress} : $To).", CC:".($execute{envraw} ? "" : $Cc).", Bcc:".($execute{envraw} ? "" : $Bcc).", Subject:".($execute{envraw} ? $execute{envraw}.": " : "").$Subject.", Type:".($Type ? $Type : "TEXT").", Encoding:".($Type eq 'multipart/related' ? undef : $Encoding).", AttachType:$AttachType, AttachFile:$AttachFile ...");
 	$logger->debug("Mailbody: $Data");
 	my $msg = MIME::Lite->new(
@@ -618,7 +627,7 @@ sub sendGeneralMail ($$$$$$;$$$$) {
 			Path => $AttachFile
 		);
 	}
-	$msg->send('smtp', $config{smtpServer}, AuthUser=>$config{smtpAuth}{user}, AuthPass=>$config{smtpAuth}{pwd});
+	$msg->send();
 	if ($msg->last_send_successful()) {
 		$logger->info("Mail sent");
 		$logger->trace("sent message: ".$msg->as_string) if $logger->is_trace();
@@ -642,7 +651,7 @@ sub send_email {
 			Type    => "TEXT",
 			Data    => $p{message},
 		);
-	$msg->send('smtp', $config{smtpServer}, AuthUser=>$config{smtpAuth}{user}, AuthPass=>$config{smtpAuth}{pwd});
+	eval {$msg->send();} or warn("couldn't send error mail: $@");
 }
 
 1;
@@ -659,20 +668,22 @@ EAI::Common - Common parts for the EAI::Wrap package
  @loads .. list of hashes defining specific load processes
  %execute .. hash of parameters for current running task script
 
- readConfigFile
- getSensInfo
- setupConfigMerge
- getOptions
- extractConfigs
- checkHash
- setupEAIWrap
- getLogFPathForMail
- getLogFPath
- MailFilter
- setupLogging
- setErrSubject $context
- checkStartingCond $process
- sendGeneralMail $From, $To, $Cc, $Bcc, $Subject, $Type, $Data, $Encoding, $AttachType, $AttachFile
+ readConfigFile ($configfilename)
+ getSensInfo ($prefix, $key)
+ setupConfigMerge ()
+ getOptions ()
+ extractConfigs ($contextSub, $arg, @required)
+ checkHash ($hash, $hashName)
+ checkParam ($subhash, $hashName)
+ setupEAIWrap ()
+ dumpFlat ($arg, $sortDump, $compressDump)
+ getLogFPathForMail ()
+ getLogFPath ()
+ MailFilter ()
+ setErrSubject ($context)
+ setupLogging ()
+ checkStartingCond ($task)
+ sendGeneralMail ($From, $To, $Cc, $Bcc, $Subject, $Type, $Data, $Encoding, $AttachType, $AttachFile)
 
 =head1 DESCRIPTION
 
@@ -688,7 +699,9 @@ read given config file (eval perl code in site.config and related files)
 
 =item getSensInfo ($$)
 
-get sensitive info from $config{sensitive}{$prefix}{$key}, arguments are $prefix and $key, depending on queried key being a ref to hash, get the environment lookup hash key value or the value directly
+arguments are $prefix and $key
+
+get sensitive info from $config{sensitive}{$prefix}{$key}, depending on queried key being a ref to hash, get the environment lookup hash key value or the value directly
 
 =item setupConfigMerge
 
@@ -706,15 +719,21 @@ get options for overriding configured settings, results are stored in globally a
 
 =item extractConfigs ($$$;@)
 
-sets error subject to $contextSub (first argument) and extracts config hashes (DB,FTP,File,process,task) from ref to hash $arg (second argument) and return them as a list of hashes. The config hashes to be extracted are given as strings in the following parameter list @required (at least one is required).
+arguments are $contextSub, $arg and @required.
+
+sets error subject to $contextSub (first argument) and extracts config hashes (DB,FTP,File,process,task) from ref to hash $arg (second argument) and return them as a list of hashes. The config hashes to be extracted are given as strings in the parameter list @required (at least one is required).
 
 =item checkHash ($$)
 
-check config hash passed in $hash for validity against hashCheck (valid key entries are there + their valid value types (examples)). returns 0 on error and exception $@ contains details, to allow for checkHash(..) or {handle exception}
+arguments are $hash and $hashName
+
+check keys of config subhash (named $hashName) being passed in $hash for validity against internal hash %hashCheck (valid key entries + their valid value types (examples) are defined there). returns 0 on error and exception $@ contains details, to allow for checkHash(..) or {handle exception}.
 
 =item checkParam ($$)
 
-check parameter key from second argument within first argument $subhash, returns 0 if not defined or not existing (only non-numerics)
+arguments are $subhash and $hashName
+
+check existence of parameter $hashName within first argument $subhash, returns 0 if not defined or empty (only non-numerics)
 
 =item setupEAIWrap
 
@@ -723,6 +742,12 @@ This sets up the configuration internally and merges the hierarchy of configurat
 Correctness of the configuration and starting conditions are also checked, preventing the task script's starting; finally all used parameters are written into the initial log line.
 
 following three functions can be used in the central log.config as coderefs for callback.
+
+=item dumpFlat ($;$$)
+
+arguments are $arg: datastructure to be flat dumped, $sortDump: sort all keys in $arg and $compressDump: compress information in $arg
+
+returns Data::Dumper dumped datastructure given in $arg flattened, sorted (if $sortDump given) and compressed (if $compressDump given)
 
 =item getLogFPathForMail
 
@@ -738,9 +763,9 @@ for Mail appender config: used for filtering if further mails should be sent, co
 
 =item setErrSubject ($)
 
-set context specific subject for ErrorMail
+argument $context .. text for context of subject
 
- $context .. text for context of subject
+set context specific subject for ErrorMail
 
 =item setupLogging
 
@@ -752,11 +777,25 @@ Each entry of the sub-hash defines defines the errmailaddress to receive error m
 
 =item checkStartingCond ($)
 
+argument $task .. config information
+
 check starting conditions from process config information and return 1 if met
 
- $task .. config information
-
 =item sendGeneralMail ($$$$$$;$$$$)
+
+arguments are
+
+ $From .. sender
+ $To .. recipient
+ $Cc .. cc recipient (optional, but need arg)
+ $Bcc .. mcc recipient  (optional, but need arg)
+ $Subject .. mail subject
+ $Data .. the mail body, either plain text or html.
+ $Type .. mail mime type (eg text/plain, text/html oder 'multipart/related'), if 'multipart/related', then a ref to array to the filenames (path), that should be attached is expected to be set in $AttachFile. 
+ In the above example a mail body ($Data) is being set as the first attachment and its type is text/html. The rest of the attachments from $AttachFile are encoded using base64 and all have mime type AttachType (see below).
+ $Encoding .. encoding for mail body, optional (eg quoted-printable)
+ $AttachType .. mime type for attachment(s) (eg text/csv or image/png), optional
+ $AttachFile .. file name/path(s) for attachment(s), optional (hat to be ref to array, if $Type = 'multipart/related')
 
 send general mail, either simple text or html mails, mails with an attachment or multipart mails for "in-body" attachments (eg pictures). 
 In this case the mail body needs to be HTML, attachments are referred to inside the HTML code and are passed as a ref to array of paths in $AttachFile.
@@ -770,20 +809,6 @@ Example:
  # pass needed files to sendGeneralMail:
  my @filelist = glob("*.png");
  sendGeneralMail(undef,'address@somewhere.com',undef,undef,"subject for mail",$body,'multipart/related','quoted-printable','image/png',\@filelist);
-
-parameters for sendGeneralMail
-
- $From .. sender
- $To .. recipient
- $Cc .. cc recipient (optional, but need arg)
- $Bcc .. mcc recipient  (optional, but need arg)
- $Subject .. mail subject
- $Data .. the mail body, either plain text or html.
- $Type .. mail mime type (eg text/plain, text/html oder 'multipart/related'), if 'multipart/related', then a ref to array to the filenames (path), that should be attached is expected to be set in $AttachFile. 
- In the above example a mail body ($Data) is being set as the first attachment and its type is text/html. The rest of the attachments from $AttachFile are encoded using base64 and all have mime type AttachType (see below).
- $Encoding .. encoding for mail body, optional (eg quoted-printable)
- $AttachType .. mime type for attachment(s) (eg text/csv or image/png), optional
- $AttachFile .. file name/path(s) for attachment(s), optional (hat to be ref to array, if $Type = 'multipart/related')
 
 =back
 

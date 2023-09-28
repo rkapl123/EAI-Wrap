@@ -1,4 +1,4 @@
-package EAI::File 0.9;
+package EAI::File 0.10;
 
 use strict; use feature 'unicode_strings'; use warnings; no warnings 'uninitialized';
 use Exporter qw(import);use Text::CSV();use Data::XLSX::Parser();use Spreadsheet::ParseExcel();use Spreadsheet::WriteExcel();use Excel::Writer::XLSX();use Data::Dumper qw(Dumper);use XML::LibXML();use XML::LibXML::Debugging();
@@ -732,7 +732,7 @@ EAI::File contains all file parsing API-calls. This is for reading plain text da
 
 =over
 
-=item readText
+=item readText ($$$)
 
 reads the defined text file with specified parameters into array of hashes (DB ready structure)
 
@@ -740,7 +740,9 @@ reads the defined text file with specified parameters into array of hashes (DB r
  $data      .. hash ref for returned data (hashkey "data" -> above mentioned array of hashes)
  $filenames .. array of file names, if explicit (given in case of mget and unpacked zip archives).
 
-=item readExcel
+returns 0 on error, 1 if OK
+
+=item readExcel ($$$)
 
 reads the defined excel file with specified parameters into array of hashes (DB ready structure)
 
@@ -748,7 +750,9 @@ reads the defined excel file with specified parameters into array of hashes (DB 
  $data      .. hash ref for returned data (hashkey "data" -> above mentioned array of hashes)
  $filenames .. array of file names, if explicit (given in case of mget and unpacked zip archives).
 
-=item readXML
+returns 0 on error, 1 if OK
+
+=item readXML ($$$)
 
 reads the defined XML file with specified parameters into array of hashes (DB ready structure)
 
@@ -756,19 +760,25 @@ reads the defined XML file with specified parameters into array of hashes (DB re
  $data      .. hash ref for returned data (hashkey "data" -> above mentioned array of hashes)
  $filenames .. array of filenamea, if explicit (given in case of mget and unpacked zip archives).
 
-=item writeText
+returns 0 on error, 1 if OK
+
+=item writeText ($$)
 
 writes a text file using specified parameters from array of hashes (DB structure) 
 
  $File      .. hash ref for File specific configuration
  $data      .. hash ref for returned data (hashkey "data" -> above mentioned array of hashes)
 
-=item writeExcel
+returns 0 on error, 1 if OK
+
+=item writeExcel ($$)
 
 writes an excel file using specified parameters from array of hashes (DB structure) 
 
  $File      .. hash ref for File specific configuration
  $data      .. hash ref for returned data (hashkey "data" -> above mentioned array of hashes)
+
+returns 0 on error, 1 if OK
 
 =back
 

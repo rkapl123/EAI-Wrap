@@ -1,4 +1,4 @@
-package EAI::DB 0.9;
+package EAI::DB 0.10;
 
 use strict; use feature 'unicode_strings'; use warnings;
 use Exporter qw(import); use DBI qw(:sql_types); use DBD::ODBC (); use Data::Dumper qw(Dumper); use Log::Log4perl qw(get_logger);
@@ -554,7 +554,7 @@ EAI::DB - Database wrapper functions (for DBI / DBD::ODBC)
  deleteFromDB ($DB, $data)
  updateInDB ($DB, $data)
  setConn ($handle, $DSN)
- getConn
+ getConn ()
 
 =head1 DESCRIPTION
 
@@ -564,69 +564,81 @@ EAI::DB contains all database related API-calls. This is for creating a database
 
 =over
 
-=item newDBH
+=item newDBH ($$)
 
 create a new handle for a database connection
 
  $DB .. hash with connection information like server, database
  $newDSN .. new DSN to be used for connection
 
- returns 0 on error, 1 if OK (handle is stored internally for further usage)
+returns 0 on error, 1 if OK (handle is stored internally for further usage)
 
 =item beginWork
 
 start transaction in database
 
- returns 0 on error, 1 if OK
+returns 0 on error, 1 if OK
 
 =item commit
 
 commit transaction in database
 
- returns 0 on error, 1 if OK
+returns 0 on error, 1 if OK
 
 =item rollback
 
 roll back transaction in database
 
- returns 0 on error, 1 if OK
+returns 0 on error, 1 if OK
 
-=item readFromDB
+=item readFromDB ($$)
 
 read data into array returned in $data
 
- $DB .. hash with information for the procedure
- $data .. ref to array of hash values (as returned by fetchall_arrayref: $return[row_0based]->{"<fieldname>"}) for return values of query.
+ $DB .. hash with information for the procedure, following keys:
  $DB->{query} .. query string
  $DB->{columnnames} .. optionally return fieldnames of the query here
- returns 0 on error, 1 if OK
+ $data .. ref to array of hash values (as returned by fetchall_arrayref: $return[row_0based]->{"<fieldname>"}) for return values of query.
 
-=item readFromDBHash
+returns 0 on error, 1 if OK
+
+=item readFromDBHash ($$)
 
 read data into hash using column $DB->{keyfield} as the unique key for the hash (used for lookups), returned in $data
 
- $DB .. hash with information for the procedure
- $data .. ref to hash of hash values (as returned by selectall_hashref: $return->{hashkey}->{"<fieldname>"}) for return values of query.
+ $DB .. hash with information for the procedure, following keys:
  $DB->{query} .. query string
  $DB->{columnnames} .. optionally return fieldnames of the query here
  $DB->{keyfield} .. field contained in the query string that should be used as the hashkey for the hash values of $data.
- returns 0 on error, 1 if OK
+ $data .. ref to hash of hash values (as returned by selectall_hashref: $return->{hashkey}->{"<fieldname>"}) for return values of query.
 
-=item doInDB
+returns 0 on error, 1 if OK
+
+=item doInDB ($;$)
 
 do general statement $DB->{doString} in database using optional parameters passed in array ref $DB->{parameters}, optionally passing back values in $data
 
- $DB .. hash with information for the procedure
- $data .. optional: ref to array for return values of statement in $DB->{doString} (usually stored procedure).
+ $DB .. hash with information for the procedure, following keys:
  $DB->{doString} .. sql statement to be executed
  $DB->{parameters} .. optional: if there are placeholders defined in $DB->{doString} for parameters (?), then the values for these parameters are passed here.
- returns 0 on error, 1 if OK
+ $data .. optional: ref to array for return values of statement in $DB->{doString} (usually stored procedure).
 
-=item storeInDB
+returns 0 on error, 1 if OK
+
+=item storeInDB ($$)
 
 store row-based data into database, using insert or an "upsert" technique
 
- $DB .. hash with information for the procedure
+ $DB .. hash with information for the procedure, following keys:
+ $DB->{tableName} .. table where data should be inserted/updated (can have a prepended schema, separated with ".")
+ $DB->{addID} .. add an additional, constant ID-field to the data (ref to hash: {"NameOfIDField" => "valueOfIDField"}), only one field/value pair is possible here
+ $DB->{upsert} .. update a record after an insert failed due to an already existing primary key (-> "upsert")
+ $DB->{primkey} .. WHERE clause (e.g. primID1 = ? AND primID2 = ?) for building the update statements
+ $DB->{ignoreDuplicateErrs} .. if  $DB->{upsert} was not set and duplicate errors with inserts should be ignored
+ $DB->{deleteBeforeInsertSelector} .. WHERE clause (e.g. col1 = ? AND col2 = ?) for deleting existing data before storing: all data that fullfills the criteria of this clause for values in the first data record of the data to be stored are being deleted (following the assumption that these criteria are the fulfilled for all records to be deleted)
+ $DB->{incrementalStore} .. if set, then undefined (NOT empty ("" !) but undef) values are not being set to NULL but skipped for the insert/update statement
+ $DB->{doUpdateBeforeInsert} .. if set, then the update in "upserts" is done BEFORE the insert, this is important for tables with an identity primary key and the inserting criterion is a/are different field(s).
+ $DB->{debugKeyIndicator} .. key debug string (e.g. Key1 = ? Key2 = ?) to build debugging key information for error messages.
  $data .. ref to array of hashes to be stored into database:
  $data = [
            {
@@ -640,32 +652,27 @@ store row-based data into database, using insert or an "upsert" technique
              ...
            },
          ];
- $DB->{tableName} .. table where data should be inserted/updated (can have a prepended schema, separated with ".")
- $DB->{addID} .. add an additional, constant ID-field to the data (ref to hash: {"NameOfIDField" => "valueOfIDField"}), only one field/value pair is possible here
- $DB->{upsert} .. update a record after an insert failed due to an already existing primary key (-> "upsert")
- $DB->{primkey} .. WHERE clause (e.g. primID1 = ? AND primID2 = ?) for building the update statements
- $DB->{ignoreDuplicateErrs} .. if  $DB->{upsert} was not set and duplicate errors with inserts should be ignored
- $DB->{deleteBeforeInsertSelector} .. WHERE clause (e.g. col1 = ? AND col2 = ?) for deleting existing data before storing: all data that fullfills the criteria of this clause for values in the first data record of the data to be stored are being deleted (following the assumption that these criteria are the fulfilled for all records to be deleted)
- $DB->{incrementalStore} .. if set, then undefined (NOT empty ("" !) but undef) values are not being set to NULL but skipped for the insert/update statement
- $DB->{doUpdateBeforeInsert} .. if set, then the update in "upserts" is done BEFORE the insert, this is important for tables with an identity primary key and the inserting criterion is a/are different field(s).
- $DB->{debugKeyIndicator} .. key debug string (e.g. Key1 = ? Key2 = ?) to build debugging key information for error messages.
- returns 0 on error, 1 if OK
 
-=item deleteFromDB
+returns 0 on error, 1 if OK
+
+=item deleteFromDB ($$)
 
 delete data identified by key-data in database
 
- $DB .. hash with information for the procedure
- $data.. ref to hash of hash entries (as returned by selectall_hashref) having key values of records to be deleted
+ $DB .. hash with information for the procedure, following keys:
  $DB->{tableName} .. table where data should be deleted
  $DB->{keycol} .. a field name or a WHERE clause (e.g. primID1 = ? AND primID2 = ?) to find data that should be removed. A contained "?" specifies a WHERE clause that is simply used for a prepared statement.
- returns 0 on error, 1 if OK
+ $data.. ref to hash of hash entries (as returned by selectall_hashref) having key values of records to be deleted
 
-=item updateInDB
+returns 0 on error, 1 if OK
+
+=item updateInDB ($$)
 
 update data in database
 
- $DB .. hash with information for the procedure
+ $DB .. hash with information for the procedure, following keys:
+ $DB->{tableName} .. table where data should be updated
+ $DB->{keycol} .. a field name or a WHERE clause (e.g. primID1 = ? AND primID2 = ?) to find data that should be updated. A contained "?" specifies a WHERE clause that is simply used for a prepared statement.
  $data.. ref to hash of hash entries (as returned by selectall_hashref) having key values of records to be updated (keyval keys are artificial keys not being used for the update, they only uniquely identify the update records)
  $data = [ 'keyval1' => {
              'field1Name' => 'DS1field1Value',
@@ -677,11 +684,10 @@ update data in database
              ...
            },
          ];
- $DB->{tableName} .. table where data should be updated
- $DB->{keycol} .. a field name or a WHERE clause (e.g. primID1 = ? AND primID2 = ?) to find data that should be updated. A contained "?" specifies a WHERE clause that is simply used for a prepared statement.
- returns 0 on error, 1 if OK
 
-=item setConn
+returns 0 on error, 1 if OK
+
+=item setConn ($$)
 
 set handle with externally created DBD::ODBC connection in case newDBH capabilities are not sufficient
 

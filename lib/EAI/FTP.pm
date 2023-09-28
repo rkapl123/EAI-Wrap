@@ -1,4 +1,4 @@
-package EAI::FTP 0.9;
+package EAI::FTP 0.10;
 
 use strict; use feature 'unicode_strings'; use warnings;
 use Exporter qw(import); use Net::SFTP::Foreign (); use Net::SFTP::Foreign::Constants qw( SFTP_ERR_LOCAL_UTIME_FAILED ); use Net::FTP (); use Text::Glob qw(match_glob);
@@ -136,23 +136,23 @@ sub _status () {
 
 # remove all files in FTP server folders that are older than a given years/months/days
 sub removeFilesOlderX ($) {
-	my $FTP = shift;
+	my $param = shift;
 	my $logger = get_logger();
-	my @removeFolders = @{$FTP->{remove}{removeFolders}} if $FTP->{remove}{removeFolders};
+	my @removeFolders = @{$param->{remove}{removeFolders}} if $param->{remove}{removeFolders};
 	if (defined $ftp) {
 		for my $folder (@removeFolders) {
-			my $newDate = addDatePart(addDatePart(addDatePart(get_curdate(),-$FTP->{remove}{year},"y"),-$FTP->{remove}{mon},"m"),-$FTP->{remove}{day},"d");
-			$logger->info("remove files in FTP (archive)folder older than $FTP->{remove}{year} years,$FTP->{remove}{mon} months and $FTP->{remove}{day} days (decreased in this order), resulting in cut off date $newDate");
+			my $newDate = addDatePart(addDatePart(addDatePart(get_curdate(),-$param->{remove}{year},"y"),-$param->{remove}{mon},"m"),-$param->{remove}{day},"d");
+			$logger->info("remove files in FTP (archive)folder older than $param->{remove}{year} years,$param->{remove}{mon} months and $param->{remove}{day} days (decreased in this order), resulting in cut off date $newDate");
 			my $mtimeToKeep = parseFromYYYYMMDD($newDate);
-			$logger->debug("changing into FTP remoteDir $FTP->{remoteDir}");
-			_setcwd(undef) if (substr($FTP->{remoteDir},0,1) eq "/"); # starting / means start from home...
-			my $remoteDir = (substr($FTP->{remoteDir},0,1) eq "/" ? substr($FTP->{remoteDir},1) : $FTP->{remoteDir});
+			$logger->debug("changing into FTP remoteDir $param->{remoteDir}");
+			_setcwd(undef) if (substr($param->{remoteDir},0,1) eq "/"); # starting / means start from home...
+			my $remoteDir = (substr($param->{remoteDir},0,1) eq "/" ? substr($param->{remoteDir},1) : $param->{remoteDir});
 			$remoteDir = ((substr($remoteDir,-1) eq "/" or $remoteDir eq "") ? $remoteDir : $remoteDir."/");
 			if (_setcwd($remoteDir.$folder)) {
 				my $files = _ls_age($mtimeToKeep) or $logger->error("can't get file list, reason: "._error().", status: "._status());
 				for my $file (@$files) {
-					$logger->info("$remoteDir$folder:".($FTP->{simulate} ? "simulate removal of: " : "removing: ").$file->{filename});
-					unless ($FTP->{simulate}) {
+					$logger->info("$remoteDir$folder:".($param->{simulate} ? "simulate removal of: " : "removing: ").$file->{filename});
+					unless ($param->{simulate}) {
 						_remove($file->{filename}) or $logger->error("can't remove $file->{filename}: "._error().", status: "._status());
 					}
 				}
@@ -434,8 +434,7 @@ sub login ($$) {
 			$logger->error("neither \$FTP->{pwd} nor \$FTP->{privKey} defined!");
 			return 0;
 		}
-		$logger->info("connecting to $RemoteHost using SFTP");
-		$logger->debug("FTP parameters:".Dumper($FTP));
+		$logger->info("connecting to $RemoteHost using SSH FTP");
 		my @moreparams;
 		push @moreparams, ("-hostkey", $FTP->{hostkey}) if $FTP->{hostkey};
 		push @moreparams, ("-i", $FTP->{privKey}) if $FTP->{privKey};
@@ -478,7 +477,7 @@ sub login ($$) {
 			return 0;
 		}
 	} else {
-		$logger->info("connecting to $RemoteHost using FTP (neither defined \$FTP->{hostkey} nor defined \$FTP->{privKey} nor set \$FTP->{SFTP})");
+		$logger->info("connecting to $RemoteHost using standard FTP (neither defined \$FTP->{hostkey} nor defined \$FTP->{privKey} nor set \$FTP->{SFTP})");
 		$logger->debug("FTP parameters:".Dumper($FTP));
 		my $connectionTries = 0; my $loginSuccess;
 		do {
@@ -550,14 +549,15 @@ EAI::FTP - wrapper for Net::SFTP::Foreign and Net::FTP
 
 =head1 SYNOPSIS
 
- removeFilesOlderX ($FTP)
+ removeFilesOlderX ($param)
  fetchFiles ($FTP,$param)
  putFile ($FTP,$param)
  moveTempFile ($FTP,$param)
- archiveFiles ($FTP,$param)
+ archiveFiles ($param)
+ removeFiles ($param)
  login ($FTP,$setRemoteHost)
  setHandle ($handle,$remoteHost)
- getHandle
+ getHandle ()
 
 =head1 DESCRIPTION
 
@@ -567,7 +567,7 @@ EAI::FTP contains all (secure) FTP related API-calls. This is for logging in to 
 
 =over
 
-=item removeFilesOlderX
+=item removeFilesOlderX ($)
 
 remove files on FTP server being older than a time back (given in remove)
 
@@ -580,29 +580,27 @@ remove files on FTP server being older than a time back (given in remove)
 
 returns 1 if ALL files were removed successfully, 0 on error (doesn't exit early)
 
-=item fetchFiles
+=item fetchFiles ($$)
 
 fetch files from FTP server
 
- $param .. ref to hash with function parameters:
- $param->{fileToRetrieve} .. file to retrieve. if a glob (*) is contained, then multiple files are retrieved
- $param->{fileToRetrieveOptional} .. flag that file is optional
- $param->{firstRunSuccess} .. used to suppress fetching errors (if first run was already successful)
- $param->{homedir} .. standard storage path
- $param->{retrievedFiles} .. returned array with retrieved file (or files if glob was given)
- 
-additionally following parameters from $FTP are important
-
+ $FTP .. ref to hash with general FTP parameters:
  $FTP->{queue_size} .. queue_size for Net::SFTP::Foreign, if > 1 this causes often connection issues
  $FTP->{remoteDir} .. remote directory where files are located
  $FTP->{path} .. path of folder of file below remoteDir
  $FTP->{localDir} .. alternative storage path, if not given then files are stored to
  $FTP->{fileToRemove} .. ignore errors for a file that was either removed or is optional 
  $FTP->{dontDoUtime} .. don't set time stamp of local file to that of remote file
+ $param .. ref to hash with function parameters:
+ $param->{fileToRetrieve} .. file to retrieve. if a glob (*) is contained, then multiple files are retrieved
+ $param->{fileToRetrieveOptional} .. flag that file is optional
+ $param->{firstRunSuccess} .. used to suppress fetching errors (if first run was already successful)
+ $param->{homedir} .. standard storage path
+ $param->{retrievedFiles} .. returned array with retrieved file (or files if glob was given)
 
 returns 1 if ALL files were fetched successfully, 0 on error (doesn't exit early)
 
-=item putFile
+=item putFile ($$)
 
 put file to FTP server
 
@@ -611,23 +609,30 @@ these temp files are immediately renamed on the server (if $FTP->{dontMoveTempIm
 when $FTP->{dontMoveTempImmediately} =1 then this waits until moveTempFile is called. This is needed to have an atomic transaction for file monitoring jobs on the FTP site!
 when $FTP->{dontDoSetStat} is set for Net::SFTP::Foreign handles, no setting of time stamp of remote file to that of local file is done (avoid error messages of FTP Server if it doesn't support this)
 
+ $FTP .. ref to hash with general FTP parameters:
+ $FTP->{dontUseTempFile} .. see above
+ $FTP->{dontMoveTempImmediately} .. see above
+ $FTP->{dontDoSetStat} .. see above
+ $FTP->{remoteDir} .. remote directory where files are located
  $param .. ref to hash with function parameters:
  $param->{fileToWrite} .. file to upload. this has to exist in local folder
  $param->{remoteDir} .. remote directory where files are located
 
 returns 1 if ALL files were written successfully, 0 on error (exits on first error !)
 
-=item moveTempFile
+=item moveTempFile ($$)
 
 separately rename temp file on FTP Server to final name (atomic transaction !)
 
+ $FTP .. ref to hash with general FTP parameters:
+ $FTP->{remoteDir} .. remote directory where files are located
  $param .. ref to hash with function parameters:
  $param->{fileToWrite} ..  file to rename from temp to final
  $param->{remoteDir} .. remote directory where files are located
  
 returns 1 if ALL files were renamed successfully, 0 on error (exits on first error !)
 
-=item archiveFiles
+=item archiveFiles ($)
 
 archive files on FTP server, given in $param->{filesToArchive}
 
@@ -639,7 +644,7 @@ archive files on FTP server, given in $param->{filesToArchive}
 
 returns 1 if ALL files were archived successfully, 0 on error (doesn't exit early), except for "No such file or directory" errors, only warning is logged here
 
-=item removeFiles
+=item removeFiles ($)
 
 delete files on FTP server, given in $param->{filesToRemove}
 
@@ -649,7 +654,7 @@ delete files on FTP server, given in $param->{filesToRemove}
 
 returns 1 if ALL files were deleted successfully, 0 on error (doesn't exit early), except for "No such file or directory" errors, only warning is logged here
 
-=item login
+=item login ($$)
 
 log in to FTP server, stores the handle of the ftp connection
 
@@ -668,7 +673,7 @@ log in to FTP server, stores the handle of the ftp connection
 
 returns 1 if login was successful, 0 on error
 
-=item setHandle
+=item setHandle ($$)
 
 sets externally created Net::SFTP:Foreign or Net::FTP handle to be further used by EAI::FTP. Additionally the RemoteHost used in the handle can be passed (used for calls to login)
 

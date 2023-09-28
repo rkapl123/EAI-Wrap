@@ -1,4 +1,4 @@
-package EAI::DateUtil 0.9;
+package EAI::DateUtil 0.10;
 
 use strict; use warnings; use feature 'unicode_strings'; use utf8;
 use Exporter qw(import); use Time::Local qw( timelocal_modern timegm_modern ); use Time::localtime; use POSIX qw(mktime);
@@ -255,27 +255,6 @@ sub is_holiday ($$) {
 	return 0;
 }
 
-sub last_week ($$$$;$) {
-	my ($d,$m,$y,$day,$month) = @_;
-	$month = $m if !$month;
-	unless ((0 <= $day) && ( $day <= 6)) {
-		warn("day <$day> is out of range 0 - 6  (sunday==0)");
-		return 0;
-	}
-	my $date = localtime(timelocal_modern(0,0,12,$d,$m-1,$y));
-	return 0 unless $m == $month; # return unless the month matches
-	return 0 unless $date->wday() == $day; # return unless the (week)day matches
-	return 0 unless (localtime(timelocal_modern(0,0,12,$d,$m-1,$y)+7*24*60*60))->mon() != $m-1; # return unless 1 week later we're in a different month
-	return 1;
-}
-
-sub last_weekYYYYMMDD ($$;$) {
-	my ($date,$day,$month) = @_;
-	my ($y,$m,$d) = $date =~ /(.{4})(..)(..)/;
-	$month = $m if !$month;
-	return last_week ($d,$m,$y,$day,$month);
-}
-
 sub first_week ($$$$;$) {
 	my ($d,$m,$y,$day,$month) = @_;
 	$month = $m if !$month;
@@ -298,25 +277,46 @@ sub first_weekYYYYMMDD ($$;$) {
 	return first_week ($d,$m,$y,$day,$month);
 }
 
+sub last_week ($$$$;$) {
+	my ($d,$m,$y,$day,$month) = @_;
+	$month = $m if !$month;
+	unless ((0 <= $day) && ( $day <= 6)) {
+		warn("day <$day> is out of range 0 - 6  (sunday==0)");
+		return 0;
+	}
+	my $date = localtime(timelocal_modern(0,0,12,$d,$m-1,$y));
+	return 0 unless $m == $month; # return unless the month matches
+	return 0 unless $date->wday() == $day; # return unless the (week)day matches
+	return 0 unless (localtime(timelocal_modern(0,0,12,$d,$m-1,$y)+7*24*60*60))->mon() != $m-1; # return unless 1 week later we're in a different month
+	return 1;
+}
+
+sub last_weekYYYYMMDD ($$;$) {
+	my ($date,$day,$month) = @_;
+	my ($y,$m,$d) = $date =~ /(.{4})(..)(..)/;
+	$month = $m if !$month;
+	return last_week ($d,$m,$y,$day,$month);
+}
+
 sub convertDate ($) {
 	my ($y,$m,$d) = ($_[0] =~ /(\d{4})[.\/](\d\d)[.\/](\d\d)/);
 	return sprintf("%04d%02d%02d",$y, $m, $d);
 }
 
-sub convertDateFromMMM ($$$$) {
-	my ($inDate, $day, $mon, $year) = @_;
+sub convertDateFromMMM ($$$$;$) {
+	my ($inDate,$day,$mon,$year,$locale) = @_;
+	$locale = "en" if !$locale;
 	my ($d,$m,$y) = ($inDate =~ /(\d{2})-(\w{3})-(\d{4})/);
-	my %months = ('Jan'=> 1, 'Feb'=> 2, 'Mar'=> 3, 'Apr'=> 4, 'May'=> 5, 'Jun'=> 6, 'Jul'=> 7, 'Aug'=> 8, 'Sep'=> 9, 'Oct'=> 10, 'Nov'=> 11, 'Dec'=> 12);
 	$$day = $d;
-	$$mon = $months{$m};
+	$$mon = $monthsToInt{lc($locale)}{lc($m)};
 	$$year = $y;
-	return sprintf("%02d.%02d.%04d",$d, $months{$m}, $y);
+	return sprintf("%02d.%02d.%04d",$d, $$mon, $y);
 }
 
-sub convertDateToMMM ($$$) {
-	my ($day,$mon,$year) = @_;
-	my @months = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec');
-	return sprintf("%02d-%03s-%04d",$day, $months[$mon-1], $year);
+sub convertDateToMMM ($$$;$) {
+	my ($day,$mon,$year,$locale) = @_;
+	$locale = "en" if !$locale;
+	return sprintf("%02d-%03s-%04d",$day, $intTomonths{lc($locale)}[$mon-1], $year);
 }
 
 sub convertToDDMMYYYY ($) {
@@ -324,16 +324,16 @@ sub convertToDDMMYYYY ($) {
 	return "$d.$m.$y";
 }
 
-sub addDays ($$$$) {
-	my ($day,$mon,$year,$dayDiff) = @_;
+sub addDays ($$$$;$) {
+	my ($day,$mon,$year,$dayDiff,$locale) = @_;
+	$locale = "en" if !$locale;
 	my $curDateEpoch = timelocal_modern(0,0,0,$$day,$$mon-1,$$year);
 	my $diffDate = localtime($curDateEpoch + $dayDiff * 60 * 60 * 25);
-	my @months = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec');
 	# dereference, so the passed variable is changed
 	$$year = $diffDate->year+1900;
 	$$mon = $diffDate->mon+1;
 	$$day = $diffDate->mday;
-	return sprintf("%02d-%03s-%04d",$$day, $months[$$mon-1], $$year);
+	return sprintf("%02d-%03s-%04d",$$day, $intTomonths{lc($locale)}[$$mon-1], $$year);
 }
 
 sub subtractDays ($$) {
@@ -341,22 +341,6 @@ sub subtractDays ($$) {
 	my ($y,$m,$d) = $date =~ /(.{4})(..)(..)/;
 	my $theDate = localtime(timelocal_modern(0,0,12,$d,$m-1,$y) - $days*24*60*60);
 	return sprintf("%04d%02d%02d",$theDate->year()+ 1900, $theDate->mon()+1, $theDate->mday());
-}
-
-sub subtractDaysHol ($$;$$) {
-	my ($date,$days,$template,$cal) = @_;
-	$cal="NO" if !$cal;
-	my ($y,$m,$d) = $date =~ /(.{4})(..)(..)/;
-	return undef if !$y or !$m or !$d;
-	# first subtract days
-	my $refdate = localtime(timelocal_modern(0,0,12,$d,$m-1,$y) - $days*24*60*60);
-	# then subtract further days as long weekend or holidays
-	if ($cal ne "NO") {
-		while ($refdate->wday() == 0 || $refdate->wday() == 6 || is_holiday($cal, sprintf("%04d%02d%02d", $refdate->year()+1900, $refdate->mon()+1, $refdate->mday()))) {
-			$refdate = localtime(timelocal_modern(0,0,12,$refdate->mday(),$refdate->mon(),$refdate->year()+1900) - 24*60*60);
-		}
-	}
-	return formatDate($refdate->year()+1900, $refdate->mon()+1, $refdate->mday(),$template);
 }
 
 sub addDaysHol ($$;$$) {
@@ -370,6 +354,22 @@ sub addDaysHol ($$;$$) {
 	if ($cal ne "NO") {
 		while ($refdate->wday() == 0 || $refdate->wday() == 6 || is_holiday($cal,sprintf("%04d%02d%02d", $refdate->year()+1900, $refdate->mon()+1, $refdate->mday()))) {
 			$refdate = localtime(timelocal_modern(0,0,12,$refdate->mday(),$refdate->mon(),$refdate->year()+1900) + 24*60*60);
+		}
+	}
+	return formatDate($refdate->year()+1900, $refdate->mon()+1, $refdate->mday(),$template);
+}
+
+sub subtractDaysHol ($$;$$) {
+	my ($date,$days,$template,$cal) = @_;
+	$cal="NO" if !$cal;
+	my ($y,$m,$d) = $date =~ /(.{4})(..)(..)/;
+	return undef if !$y or !$m or !$d;
+	# first subtract days
+	my $refdate = localtime(timelocal_modern(0,0,12,$d,$m-1,$y) - $days*24*60*60);
+	# then subtract further days as long weekend or holidays
+	if ($cal ne "NO") {
+		while ($refdate->wday() == 0 || $refdate->wday() == 6 || is_holiday($cal, sprintf("%04d%02d%02d", $refdate->year()+1900, $refdate->mon()+1, $refdate->mday()))) {
+			$refdate = localtime(timelocal_modern(0,0,12,$refdate->mday(),$refdate->mon(),$refdate->year()+1900) - 24*60*60);
 		}
 	}
 	return formatDate($refdate->year()+1900, $refdate->mon()+1, $refdate->mday(),$template);
@@ -483,14 +483,12 @@ EAI::DateUtil - Date and Time helper functions for L<EAI::Wrap>
  get_curdatetime ()
  get_curdate_dot ()
  formatDate ($y, $m, $d, [$template])
- formatDateFromYYYYMMDD($date, [$template])
+ formatDateFromYYYYMMDD ($date, [$template])
  get_curdate_gen ([$template])
  get_curdate_dash ()
  get_curdate_dash_plus_X_years ($years)
  get_curtime ()
  get_curtime_HHMM ()
- get_lastdateYYYYMMDD ()
- get_lastdateDDMMYYYY ()
  is_first_day_of_month ($date YYYYMMDD)
  is_last_day_of_month ($date YYYYMMDD, [$cal])
  get_last_day_of_month ($date YYYYMMDD)
@@ -504,17 +502,19 @@ EAI::DateUtil - Date and Time helper functions for L<EAI::Wrap>
  last_week ($d,$m,$y,$day,[$month])
  last_weekYYYYMMDD ($date,$day,[$month])
  convertDate ($date YYYY.MM.DD or YYYY/MM/DD)
- convertDateFromMMM ($inDate dd-mmm-yyyy, out $day, out $mon, out $year)
- convertDateToMMM ($day, $mon, $year)
+ convertDateFromMMM ($inDate dd-mmm-yyyy, out $day, out $mon, out $year, [$locale])
+ convertDateToMMM ($day, $mon, $year, [$locale])
  convertToDDMMYYYY ($date YYYYMMDD)
- addDays ($day, $mon, $year, $dayDiff)
- addDaysHol ($date, $days, [$template, $cal])
- addDatePart ($date, $count, $datepart, [$template])
+ addDays ($day, $mon, $year, $dayDiff, [$locale])
  subtractDays ($date, $days)
+ addDaysHol ($date, $days, [$template, $cal])
  subtractDaysHol ($date, $days, [$template, $cal])
+ addDatePart ($date, $count, $datepart, [$template])
+ get_lastdateYYYYMMDD ()
+ get_lastdateDDMMYYYY ()
  convertcomma ($number, $divideBy)
  convertToThousendDecimal($value, $ignoreDecimal)
- get_dateseries
+ get_dateseries ($fromDate, $toDate, $cal)
  parseFromDDMMYYYY ($dateStr)
  parseFromYYYYMMDD ($dateStr)
  convertEpochToYYYYMMDD ($epoch)
@@ -527,21 +527,30 @@ EAI::DateUtil contains all date/time related API-calls.
 
 =over
 
-=item monthsToInt
+=item monthsToInt ($$)
 
-convert from english/german/custom locale short months -> numbers, monthsToInt("Oct","EN") equals 10, monthsToInt("mär","GE") equals 3. months and locale are case insensitive.
+convert from english/german/custom locale short months -> numbers, monthsToInt("Oct","en") equals 10, monthsToInt("mär","ge") equals 3. months and locale are case insensitive.
 
-=item intToMonths
+ $mon ..  month in textual format (as defined in locale)
+ $locale .. locale as defined in monthsToInt (builtin "en" and "ge", can be added with addLocaleMonths)
 
-convert from int to english/german/custom locale months -> numbers, intToMonths(10,"EN") equals "Oct", intToMonths(3,"GE") equals "Mär". locale is case insensitive, month is returned with uppercase beginnen resp. as it was added (see below).
+=item intToMonths ($$)
 
-=item addLocaleMonths
+convert from int to english/german/custom locale months -> numbers, intToMonths(10,"en") equals "Oct", intToMonths(3,"ge") equals "Mär". locale is case insensitive, month is returned with first letter uppercase resp. as it was added (see below).
+
+ $mon ..  month in textual format (as defined in locale)
+ $locale .. locale as defined in monthsToInt (builtin "en" and "ge", can be added with addLocaleMonths)
+
+=item addLocaleMonths ($$)
 
 adds custom locale $locale with ref to array $monthsArray to above conversion functions. locale is case insensitive.
 
+ $locale .. locale to be defined
+ $months .. ref to array of months in textual format
+
 Example:
 
- addLocaleMonths("FR",["Jan","Fév","Mars","Mai","Juin","Juil","Août","Sept","Oct","Nov","Déc"]);
+ addLocaleMonths("fr",["Jan","Fév","Mars","Mai","Juin","Juil","Août","Sept","Oct","Nov","Déc"]);
 
 =item get_curdate
 
@@ -555,7 +564,7 @@ gets current datetime in format YYYYMMDD_HHMMSS
 
 gets current date in format DD.MM.YYYY
 
-=item formatDate
+=item formatDate ($$$;$)
 
 formats passed date (given in arguments $y,$m,$d) into format as defined in $template
 
@@ -568,28 +577,30 @@ formats passed date (given in arguments $y,$m,$d) into format as defined in $tem
               additionally a locale can be passed in brackets with MMM and mmm, resulting in conversion to locale dependent months.
               e.g. formatDate(2002,6,1,"Y-MMM-D[fr]") would yield 2002-Juin-01 for the addLocaleMonths given above.
 
-=item formatDateFromYYYYMMDD
+=item formatDateFromYYYYMMDD ($;$)
 
-formats passed date (given in argument $date) in format as defined in $template
+returns passed date (argument $date) formatted as defined in $template
 
  $date .. date in format YYYYMMDD
- $template .. same as in formatDate
+ $template .. same as in formatDate above
 
-=item get_curdate_gen
+=item get_curdate_gen (;$)
 
 returns current date in format as defined in $template
 
- $template .. same as in formatDate
+ $template .. same as in formatDate above
 
 =item get_curdate_dash
 
 returns current date in format DD-MM-YYYY
 
-=item get_curdate_dash_plus_X_years: date + X years in format DD-MM-YYYY
+=item get_curdate_dash_plus_X_years ($;$$)
 
  $y .. years to be added to the current or given date
- $year,$mon,$day .. optional date to which X years should be added (if not given current date is taken instead).
- $daysToSubtract .. days that should be subtracted from the result
+ $date .. optional date to which X years should be added (if not given, then current date is taken instead).
+ $daysToSubtract .. optional days that should be subtracted from above result
+
+returns (current or given) date + X years in format DD-MM-YYYY
 
 =item get_curtime
 
@@ -601,38 +612,38 @@ returns current time in format HH:MM:SS (or as given in formatstring $format, ho
 
 returns current time in format HHMM
 
-=item is_first_day_of_month
+=item is_first_day_of_month ($)
 
 returns 1 if first day of months, 0 else
 
  $date .. date in format YYYYMMDD
 
-=item is_last_day_of_month
+=item is_last_day_of_month ($;$)
 
 returns 1 if last day of month, 0 else
 
  $date .. date in format YYYYMMDD
  $cal .. optional, calendar for holidays used to get the last of month
 
-=item get_last_day_of_month
+=item get_last_day_of_month ($)
 
 returns last day of month of passed date
 
  $date .. date in format YYYYMMDD
 
-=item weekday
+=item weekday ($)
 
 returns 1..sunday to 7..saturday
 
  $date .. date in format YYYYMMDD
 
-=item is_weekend
+=item is_weekend ($)
 
 returns 1 if saturday or sunday
 
  $date .. date in format YYYYMMDD
 
-=item is_holiday
+=item is_holiday ($$)
 
 returns 1 if weekend or holiday
 
@@ -640,14 +651,14 @@ returns 1 if weekend or holiday
          throws warning if calendar not supported (fixed lookups or additionally added). To add a calendar use addCalendar.
  $date .. date in format YYYYMMDD
 
-=item is_easter
+=item is_easter ($$)
 
 returns 1 if date is an easter holiday for that calendar
 
  $cal .. holiday calendar;
  $date .. date in format YYYYMMDD
 
-=item addCalendar
+=item addCalendar ($$$$)
 
 add an additional calendar for calendar holiday dependent calculations
 
@@ -665,27 +676,7 @@ Example:
  }
  addCalendar("TC",{"0101"=>1,"0105"=>1,"2512"=>1,"2612"=>1},{"EM"=>1,"GF"=>1},\&testCalSpecial);
 
-=item last_week
-
-returns 1 if given date ($d,$m,$y) is the last given weekday ($day: 0 - 6, sunday==0) in given month ($month),
- if $month is not passed, then it is taken from passed date.
-
- $d .. day part
- $m .. month part
- $y .. year part
- $day .. given weekday
- $month .. optional, given month
-
-=item last_weekYYYYMMDD
-
-returns 1 if given date ($date in Format YYYYMMDD) is the last given weekday ($day: 0 - 6, sunday==0) in given month ($month),
- if $month is not passed, then it is taken from passed date.
- 
- $date .. given date
- $day .. given weekday
- $month .. optional, given month
- 
-=item first_week
+=item first_week ($$$$;$)
 
 returns 1 if given date ($d,$m,$y) is the first given weekday ($day: 0 - 6, sunday==0) in given month ($month),
  if $month is not passed, then it is taken from passed date.
@@ -696,7 +687,7 @@ returns 1 if given date ($d,$m,$y) is the first given weekday ($day: 0 - 6, sund
  $day .. given weekday
  $month .. optional, given month
 
-=item first_weekYYYYMMDD
+=item first_weekYYYYMMDD ($$;$)
 
 returns 1 if given date ($date in Format YYYYMMDD) is the first given weekday ($day: 0 - 6, sunday==0) in given month ($month),
  if $month is not passed, then it is taken from passed date.
@@ -704,54 +695,86 @@ returns 1 if given date ($date in Format YYYYMMDD) is the first given weekday ($
  $date .. given date
  $day .. given weekday
  $month .. optional, given month
+
+=item last_week ($$$$;$)
+
+returns 1 if given date ($d,$m,$y) is the last given weekday ($day: 0 - 6, sunday==0) in given month ($month),
+ if $month is not passed, then it is taken from passed date.
+
+ $d .. day part
+ $m .. month part
+ $y .. year part
+ $day .. given weekday
+ $month .. optional, given month
+
+=item last_weekYYYYMMDD ($$;$)
+
+returns 1 if given date ($date in Format YYYYMMDD) is the last given weekday ($day: 0 - 6, sunday==0) in given month ($month),
+ if $month is not passed, then it is taken from passed date.
  
-=item convertDate
+ $date .. given date
+ $day .. given weekday
+ $month .. optional, given month
+
+=item convertDate ($)
 
 converts given date to format YYYYMMDD
 
  $date .. date in format YYYY.MM.DD or YYYY/MM/DD
 
-=item convertDateFromMMM
+=item convertDateFromMMM ($$$$;$)
 
-converts date from format dd-mmm-yyyy (01-Oct-05, english !), returns date in format DD.MM.YYYY ($day, $mon, $year are returned by ref as well)
+converts date from format dd-mmm-yyyy (mmm as defined in $locale, defaults to "en"glish), returns date in format DD.MM.YYYY ($day, $mon, $year are returned by ref as well)
 
  $inDate .. date to be converted
  $day .. ref for day part
  $mon .. ref for month part
  $year ..  ref for year part
+ $locale .. optional locale as defined in monthsToInt (builtin "en" and "ge", can be added with addLocaleMonths)
 
-=item convertDateToMMM
+=item convertDateToMMM ($$$;$)
 
-converts date into ($day, $mon, $year) from format dd-mmm-yyyy (01-Oct-05, english !)
+converts date into format dd-mmm-yyyy (mmm as defined in $locale, defaults to "en"glish) from ($day, $mon, $year)
 
  $day .. day part
  $mon .. month part
  $year .. year part
+ $locale .. optional locale as defined in monthsToInt (builtin "en" and "ge", can be added with addLocaleMonths)
 
-=item convertToDDMMYYYY
+=item convertToDDMMYYYY ($)
 
 converts date into $datestring (dd.mm.yyyy) from format YYYYMMDD
 
  $date .. date in format YYYYMMDD
 
-=item addDays
+=item addDays ($$$$;$)
 
-adds $dayDiff to date ($day, $mon, $year) and returns in format dd-mmm-yyyy (01-Oct-05, english !),
+adds $dayDiff to date ($day, $mon, $year) and returns in format dd-mmm-yyyy (mmm as defined in $locale, defaults to "en"glish),
                 arguments $day, $mon, $year are returned by ref as well if not passed as literal
 
  $day .. day part
  $mon .. month part
  $year .. year part
  $dayDiff .. days to be added
+ $locale .. optional locale as defined in monthsToInt (builtin "en" and "ge", can be added with addLocaleMonths)
 
-=item subtractDays
+=item subtractDays ($$)
 
 subtracts $days actual calendar days from $date
 
  $date .. date in format YYYYMMDD
  $days .. calendar days to subtract
 
-=item subtractDaysHol
+=item addDaysHol ($$;$$)
+
+adds $days days to $date and regards weekends and holidays of passed calendar
+
+ $date .. date in format YYYYMMDD
+ $days .. calendar days to add
+ $template .. as in formatDate
+ $cal .. holiday calendar; currently supported: NO (no holidays = default if not given), rest as in is_holiday
+
+=item subtractDaysHol ($$;$$)
 
 subtracts $days days from $date and regards weekends and holidays of passed calendar
 
@@ -760,16 +783,7 @@ subtracts $days days from $date and regards weekends and holidays of passed cale
  $template .. as in formatDate
  $cal .. holiday calendar; currently supported: NO (no holidays  = default if not given), rest as in is_holiday
 
-=item addDaysHol
-
-adds $days days to $date and regards weekends and holidays of passed calendar
-
- $date .. date in format YYYYMMDD
- $days .. calendar days to add
- $template .. as in formatDate
- $cal .. holiday calendar; currently supported: NO (no holidays = default if not given), rest as in is_holiday
- 
-=item addDatePart
+=item addDatePart ($$$;$)
 
 adds $count dateparts to $date. when adding to months ends (>28 in february, >29 or >30 else), if the month end is not available in the target month, then date is moved into following month
 
@@ -780,27 +794,27 @@ adds $count dateparts to $date. when adding to months ends (>28 in february, >29
 
 =item get_lastdateYYYYMMDD
 
-returns last business day (only weekends, no holiday here !) in format YYYYMMDD
+returns the last business day (only weekends, no holiday here !) in format YYYYMMDD
 
 =item get_lastdateDDMMYYYY
 
-returns last business day (only weekends, no holiday here !) in format DDMMYYYY
+returns the last business day (only weekends, no holiday here !) in format DDMMYYYY
 
-=item convertcomma
+=item convertcomma ($$)
 
 converts decimal point in $number to comma, also dividing by $divideBy before if $divideBy is set
 
  $number ..  number to be converted
  $divideBy .. number to be divided by
 
-=item convertToThousendDecimal
+=item convertToThousendDecimal ($$)
 
 converts $value into thousand separated decimal (german format) ignoring decimal places if wanted
  
  $value .. number to be converted
  $ignoreDecimal .. return number without decimal places (truncate)
 
-=item get_dateseries
+=item get_dateseries ($$$)
 
 returns date values (format YYYYMMMDD) starting at $fromDate until $toDate, if a holiday calendar is set in $cal (optional), these holidays (incl. weekends) are regarded as well.
  
@@ -808,19 +822,19 @@ returns date values (format YYYYMMMDD) starting at $fromDate until $toDate, if a
  $toDate .. end date
  $cal .. holiday calendar
 
-=item parseFromDDMMYYYY
+=item parseFromDDMMYYYY ($)
 
-returns time epoch from datestring (dd.mm.yyyy)
-
- $dateStr .. datestring
-
-=item parseFromYYYYMMDD
-
-returns time epoch from datestring (yyyymmdd)
+returns time epoch from given datestring (dd.mm.yyyy)
 
  $dateStr .. datestring
 
-=item convertEpochToYYYYMMDD
+=item parseFromYYYYMMDD ($)
+
+returns time epoch from given datestring (yyyymmdd)
+
+ $dateStr .. datestring
+
+=item convertEpochToYYYYMMDD ($)
 
 returns datestring (yyyymmdd) from epoch/Time::piece
 
