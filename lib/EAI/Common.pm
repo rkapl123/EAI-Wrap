@@ -1,4 +1,4 @@
-package EAI::Common 0.10;
+package EAI::Common 1.0;
 
 use strict; use feature 'unicode_strings'; use warnings; no warnings 'uninitialized';
 use Exporter qw(import); use EAI::DateUtil qw(get_curdate is_holiday); use Data::Dumper qw(Dumper); use Getopt::Long qw(:config no_ignore_case); use Log::Log4perl qw(get_logger); use MIME::Lite (); use Scalar::Util qw(looks_like_number); use Module::Refresh ();
@@ -18,19 +18,19 @@ my %hashCheck = (
 		task => {},
 	},
 	config => { # parameter category for site global settings, defined in site.config and other associated configs loaded at INIT
-		checkLookup => {"test.pl" => {errmailaddress => "",errmailsubject => "",timeToCheck =>"", freqToCheck => "", logFileToCheck => "", logcheck => "",logRootPath =>""}}, # used for logchecker, each entry of the hash defines a log to be checked, defining errmailaddress to receive error mails, errmailsubject, timeToCheck as earliest time to check for existence in log, freqToCheck as frequency of checks (daily/monthly/etc), logFileToCheck as the name of the logfile to check, logcheck as the regex to check in the logfile and logRootPath as the folder where the logfile is found. lookup key: $execute{scriptname} + $execute{addToScriptName}
+		checkLookup => {}, # ref to datastructure {"scriptname.pl" => {errmailaddress => "",errmailsubject => "",timeToCheck =>"", freqToCheck => "", logFileToCheck => "", logcheck => "",logRootPath =>""},...} used for logchecker, each entry of the hash lookup table defines a log to be checked, defining errmailaddress to receive error mails, errmailsubject, timeToCheck as earliest time to check for existence in log, freqToCheck as frequency of checks (daily/monthly/etc), logFileToCheck as the name of the logfile to check, logcheck as the regex to check in the logfile and logRootPath as the folder where the logfile is found. lookup key: $execute{scriptname} + $execute{addToScriptName}
 		errmailaddress => "", # default mail address for central logcheck/errmail sending 
 		errmailsubject => "", # default mail subject for central logcheck/errmail sending 
 		executeOnInit => "", # code to be executed during INIT of EAI::Wrap to allow for assignment of config/execute parameters from commandline params BEFORE Logging!
-		folderEnvironmentMapping => {Test => "Test", Dev => "Dev", "" => "Prod"}, # Mapping for $execute{envraw} to $execute{env}:
+		folderEnvironmentMapping => {}, # ref to hash {Test => "Test", Dev => "Dev", "" => "Prod"}, mapping for $execute{envraw} to $execute{env}
 		fromaddress => "", # from address for central logcheck/errmail sending, also used as default sender address for sendGeneralMail
-		historyFolder => {"" => "default"}, # folders where downloaded files are historized, lookup key as checkLookup, default in "" =>
-		historyFolderUpload => {"" => "default"}, # folders where uploaded files are historized, lookup key as checkLookup, default in "" =>
+		historyFolder => {}, # ref to hash {"scriptname.pl" => "folder"}, folders where downloaded files are historized, lookup key as in checkLookup, default in "" => "defaultfolder"
+		historyFolderUpload => {}, # ref to hash {"scriptname.pl" => "folder"}, folders where uploaded files are historized, lookup key as in checkLookup, default in "" => "defaultfolder"
 		logCheckHoliday => "", # calendar for business days in central logcheck/errmail sending. builtin calendars are AT (Austria), TG (Target), UK (United Kingdom) and WE (for only weekends). Calendars can be added with EAI::DateUtil::addCalendar
 		logs_to_be_ignored_in_nonprod => '', # logs to be ignored in central logcheck/errmail sending
-		logRootPath => {"" => "default"}, # paths to log file root folders (environment is added to that if non production), lookup key as checkLookup, default in "" =>
-		redoDir => {"" => "default"}, # folders where files for redo are contained, lookup key as checkLookup, default in "" =>
-		sensitive => {"prefix" => {user=>"",pwd =>"",hostkey=>"",privkey =>""}}, # hash lookup for sensitive access information in DB and FTP (lookup keys are set with DB{prefix} or FTP{prefix}), may also be placed outside of site.config; all sensitive keys can also be environment lookups, e.g. hostkey=>{Test => "", Prod => ""} to allow for environment specific setting
+		logRootPath => {}, # ref to hash {"scriptname.pl" => "folder"}, paths to log file root folders (environment is added to that if non production), lookup key as checkLookup, default in "" => "defaultfolder"
+		redoDir => {}, # ref to hash {"scriptname.pl" => "folder"}, folders where files for redo are contained, lookup key as checkLookup, default in "" => "defaultfolder"
+		sensitive => {}, # hash lookup table ({"prefix" => {user=>"",pwd =>"",hostkey=>"",privkey =>""},...}) for sensitive access information in DB and FTP (lookup keys are set with DB{prefix} or FTP{prefix}), may also be placed outside of site.config; all sensitive keys can also be environment lookups, e.g. hostkey=>{Test => "", Prod => ""} to allow for environment specific setting
 		smtpServer => "", # smtp server for den (error) mail sending
 		smtpTimeout => 60, # timeout for smtp response
 		testerrmailaddress => '', # error mail address in non prod environment
@@ -94,15 +94,15 @@ my %hashCheck = (
 		longreadlen => 1024, # used for setting database handles LongReadLen parameter for DB connection, if not set defaults to 1024
 		noDBTransaction => 1, # don't use a DB transaction for dumpDataIntoDB
 		noDumpIntoDB => 1, # if files from this load should not be dumped to the database
-		postDumpExecs => [{execs => ['',''], condition => ''}], # done in dumpDataIntoDB after postDumpProcessing and before commit/rollback. doInDB everything in execs if condition is fulfilled 
-		postDumpProcessing => "", # done in dumpDataIntoDB after storeInDB, execute perl code in postDumpProcessing
-		postReadProcessing => "", # done in writeFileFromDB after readFromDB, execute perl code in postReadProcessing
-		prefix => "db", # key for sensitive information (e.g. pwd and user) in config{sensitive}
+		postDumpExecs => [], # array for execs done in dumpDataIntoDB after postDumpProcessing and before commit/rollback: [{execs => ['',''], condition => ''}]. doInDB all execs if condition (evaluated string or anonymous sub: condition => sub {...}) is fulfilled
+		postDumpProcessing => "", # done in dumpDataIntoDB after storeInDB, execute perl code in postDumpProcessing (evaluated string or anonymous sub: postDumpProcessing => sub {...})
+		postReadProcessing => "", # done in writeFileFromDB after readFromDB, execute perl code in postReadProcessing (evaluated string or anonymous sub: postReadProcessing => sub {...})
+		prefix => "", # key for sensitive information (e.g. pwd and user) in config{sensitive}
 		primkey => "", # primary key indicator to be used for update statements, format: "key1 = ? AND key2 = ? ..."
 		pwd => "", # for password setting, either directly (insecure -> visible) or via sensitive lookup
 		query => "", # query statement used for readFromDB and readFromDBHash
 		schemaName => "", # schemaName used in dumpDataIntoDB/storeInDB, if tableName contains dot the extracted schema from tableName overrides this. Needed for datatype information!
-		server => {Prod => "", Test => ""}, # DB Server in environment hash
+		server => {}, # DB Server in environment hash lookup: {Prod => "", Test => ""}
 		tablename => "", # the table where data is stored in dumpDataIntoDB/storeInDB
 		upsert => 1, # in dumpDataIntoDB/storeInDB, should an update be done after the insert failed (because of duplicate keys) or insert after the update failed (because of key not exists)?
 		user => "", # for user setting, either directly (insecure -> visible) or via sensitive lookup
@@ -116,9 +116,9 @@ my %hashCheck = (
 		emptyOK => 0, # flag to specify whether empty files should not invoke an error message. Also needed to mark an empty file as processed in EAI::Wrap::markProcessed
 		extract => 1, # flag to specify whether to extract files from archive package (zip)
 		extension => "", # the extension of the file to be read (optional, used for redoFile)
-		fieldCode => {}, # additional field based processing code: fieldCode => {field1 => 'perl code', ..}, invoked if key equals either header (as in format_header) or targetheader (as in format_targetheader) or invoked for all fields if key is empty {"" => 'perl code'}. set $skipLineAssignment to true (1) if current line should be skipped from data.
+		fieldCode => {}, # additional field based processing code: fieldCode => {field1 => 'perl code', ..}, invoked if key equals either header (as in format_header) or targetheader (as in format_targetheader) or invoked for all fields if key is empty {"" => 'perl code'}. set $EAI::File::skipLineAssignment to true (1) if current line should be skipped from data. perl code can be an evaluated string or an anonymous sub: field1 => sub {...}
 		filename => "", # the name of the file to be read
-		firstLineProc => '', # processing done in reading the first line of text files
+		firstLineProc => "", # processing done in reading the first line of text files
 		format_allowLinefeedInData => 1, # line feeds in values don't create artificial new lines/records, only works for csv quoted data
 		format_beforeHeader => "", # additional String to be written before the header in write text
 		format_dateColumns => [], # numeric array of columns that contain date values (special parsing) in excel files
@@ -147,7 +147,7 @@ my %hashCheck = (
 		format_xlformat => "xlsx|xls", # excel format for parsing, also specifies excel parsing
 		format_xpathRecordLevel => "", # xpath for level where data nodes are located in xml
 		format_XML => 1, # specify xml parsing
-		lineCode => "", # additional line based processing code, invoked after whole line has been read
+		lineCode => "", # additional line based processing code, invoked after whole line has been read (evaluated string or anonymous sub: lineCode => sub {...})
 		localFilesystemPath => "", # if files are taken from or put to the local file system with getLocalFiles/putFileInLocalDir then the path is given here. Setting this to "." avoids copying files.
 		optional => 1, # to avoid error message for missing optional files, set this to 1
 	},
@@ -171,9 +171,9 @@ my %hashCheck = (
 		privKey => "", # sftp key file location for Net::SFTP::Foreign, either directly (insecure -> visible) or via sensitive lookup
 		pwd => "", # for password setting, either directly (insecure -> visible) or via sensitive lookup
 		queue_size => 1, # queue_size for Net::SFTP::Foreign, if > 1 this causes often connection issues
-		remove => {removeFolders=>[], day=>, mon=>, year=>1}, # for for removing (archived) files with removeFilesOlderX, all files in removeFolders are deleted being older than day=> days, mon=> months and year=> years
+		remove => {}, # ref to hash {removeFolders=>[], day=>, mon=>, year=>1} for for removing (archived) files with removeFilesOlderX, all files in removeFolders are deleted being older than day days, mon months and year years
 		remoteDir => "", # remote root folder for up-/download, archive and remove: "out/Marktdaten/", path is added then for each filename (load)
-		remoteHost => {Prod => "", Test => ""}, # ref to hash of IP-addresses/DNS of host(s).
+		remoteHost => {}, # ref to hash of IP-addresses/DNS of host(s).
 		SFTP => 0, # to explicitly use SFTP, if not given SFTP will be derived from existence of privKey or hostkey
 		simulate => 0, # for removal of files using removeFilesinFolderOlderX/removeFilesOlderX only simulate (1) or do actually (0)?
 		sshInstallationPath => "", # path were ssh/plink exe to be used by Net::SFTP::Foreign is located
@@ -197,26 +197,30 @@ my %hashCheck = (
 		customHistoryTimestamp => "", # optional custom timestamp to be added to filenames moved to History/HistoryUpload/FTP archive, if not given, get_curdatetime is used (YYYYMMDD_hhmmss)
 		execOnly => "", # used to remove loads where $common{task}{execOnly} !~ $load->{process}{onlyExecFor}
 		ignoreNoTest => 0, # ignore the notest file in the process-script folder, usually preventing all runs that are not in production
-		plannedUntil => "2359", # latest time that planned repitition should last
+		plannedUntil => "", # latest time that planned repitition should last
 		redoFile => 1, # flag for specifying a redo
 		redoTimestampPatternPart => "", # part of the regex for checking against filename in redo with additional timestamp/redoDir pattern (e.g. "redo", numbers and _), anything after files barename (and before ".$ext" if extension is defined) is regarded as a timestamp. Example: '[\d_]', the regex is built like ($ext ? qr/$barename($redoTimestampPatternPart|$redoDir)*\.$ext/ : qr/$barename($redoTimestampPatternPart|$redoDir)*.*/)
 		retrySecondsErr => 60, # retry period in case of error
 		retrySecondsErrAfterXfails => 600, # after fail count is reached this alternate retry period in case of error is applied. If 0/undefined then job finishes after fail count
 		retrySecondsXfails => 3, # fail count after which the retrySecondsErr are changed to retrySecondsErrAfterXfails
 		retrySecondsPlanned => 300, # retry period in case of planned retry
-		skipHolidays => 0, # skip script execution on holidays
-		skipHolidaysDefault => "AT", # holiday calendar to take into account for skipHolidays
+		skipHolidays => "", # skip script execution on holidays
+		skipHolidaysDefault => "", # holiday calendar to take into account for skipHolidays
 		skipWeekends => 0, # skip script execution on weekends
-		skipForFirstBusinessDate => 0, # used for "wait with execution for first business date", either this is a calendar or 1 (then calendar is skipHolidaysDefault), this cannot be used together with skipHolidays
+		skipForFirstBusinessDate => "", # used for "wait with execution for first business date", either this is a calendar or 1 (then calendar is skipHolidaysDefault), this cannot be used together with skipHolidays
 	},
 );
-# ignore type checking for these as they might have different types
-my %ignoreType = (
-	Filecolumns => 1, # can be ref to hash or ref to array
-	Fileformat_skip => 1, # can be line number (int) or "skip until pattern" string
-	Fileformat_sep => 1, # can be regex split or separator string
-	taskskipHolidays => 1, # can be true (1) or calendar string
-	taskskipForFirstBusinessDate => 1, # can be true (1) or calendar string
+# alternate type checking for these as they might have different types
+my %alternateType = (
+	configexecuteOnInit => sub {}, # can be eval string or anonymous sub
+	DBpostDumpProcessing => sub {}, # can be eval string or anonymous sub
+	DBpostReadProcessing => sub {}, # can be eval string or anonymous sub
+	Filecolumns => [], # can be ref to hash or ref to array
+	Fileformat_skip => 1, # can be "skip until pattern" string or line number (int)
+	Fileformat_sep => qr//, # can be separator string or regex split
+	FilelineCode => sub {}, # can be eval string or anonymous sub
+	taskskipHolidays => 1, # can be calendar string or true (1)
+	taskskipForFirstBusinessDate => 1, # can be calendar string or true (1)
 );
 
 our %common;our %config;our @loads;our %execute;our @optload;our %opt;
@@ -389,8 +393,23 @@ sub checkHash ($$) {
 				} else {
 					# check type for existing keys, if explicitly not defined then ignore...
 					if (defined($hash->{$defkey})) {
-						die "wrong reference type for value: \$".$hashName."{".$defkey."}: ".ref($hashCheck{$hashName}{$defkey})." is not the same as the passed one:".ref($hash->{$defkey}).",".$locStr if (ref($hashCheck{$hashName}{$defkey}) ne ref($hash->{$defkey}) && !$ignoreType{$hashName.$defkey});
-						die "wrong type for value: \$".$hashName."{".$defkey."},".$locStr if (looks_like_number($hashCheck{$hashName}{$defkey}) ne looks_like_number($hash->{$defkey}) && !$ignoreType{$hashName.$defkey});
+						if (ref($hashCheck{$hashName}{$defkey}) ne ref($hash->{$defkey})) {
+							if (!defined($alternateType{$hashName.$defkey}) or (ref($alternateType{$hashName.$defkey}) ne ref($hash->{$defkey}))) {
+								die "wrong reference type for value: \$".$hashName."{".$defkey."}:".ref($hash->{$defkey}).", it should be either:".ref($hashCheck{$hashName}{$defkey})." or:".ref($alternateType{$hashName.$defkey}).",".$locStr;
+							}
+						}
+						# numeric check: either hashcheck is same looks_like_number as given key or alternateType is same looks_like_number
+						if (looks_like_number($hash->{$defkey}) and !looks_like_number($hashCheck{$hashName}{$defkey})) {
+							if (!defined($alternateType{$hashName.$defkey}) or (looks_like_number($hash->{$defkey}) and !looks_like_number($alternateType{$hashName.$defkey}))) {
+								die "wrong numeric type for value: \$".$hashName."{".$defkey."},".$locStr;
+							}
+						}
+						# non-numeric check: if non-numeric type given, then check if either hashcheck looks like a number or hashcheck was a ref type and alternateType looks like a number
+						if (!looks_like_number($hash->{$defkey}) and !ref($hash->{$defkey}) and looks_like_number($hashCheck{$hashName}{$defkey})) {
+							if (!defined($alternateType{$hashName.$defkey}) or (!looks_like_number($hash->{$defkey}) and looks_like_number($alternateType{$hashName.$defkey}))) {
+								die "wrong non-numeric type for value: \$".$hashName."{".$defkey."},".$locStr;
+							}
+						}
 					}
 				}
 			}
@@ -496,7 +515,7 @@ sub setupLogging {
 			Log::Log4perl->appenders()->{"MAIL"}->{"appender"}->{"to"} = [$config{testerrmailaddress}] if $config{testerrmailaddress};
 			$logger->error("no errmailaddress found for ".$execute{scriptname}.$execute{addToScriptName}.", no entry found in \$config{checkLookup}{$execute{scriptname}.$execute{addToScriptName}}");
 		}
-		setErrSubject("Setting up EAI.Wrap"); # general context after logging initialization: setup of EAI.Wrap by script
+		setErrSubject("Setting up EAI::Wrap"); # general context after logging initialization: setup of EAI::Wrap by script
 	} else {
 		# remove any defined mail appenders
 		undef(Log::Log4perl->appenders()->{"MAIL"}) if Log::Log4perl->appenders()->{"MAIL"};
@@ -516,7 +535,7 @@ sub setupEAIWrap {
 	}
 	# check starting conditions and exit if met (returned true)
 	checkStartingCond(\%common) and exit 0;
-	setErrSubject("General EAI.Wrap script execution"); # general context after setup of EAI.Wrap
+	setErrSubject("General EAI::Wrap script execution"); # general context after setup of EAI::Wrap
 }
 
 # returned Data::Dumpered datastructure given in $arg flattened, sorted (if $sortDump given) and compressed (if $compressDump given)

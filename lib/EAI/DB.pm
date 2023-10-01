@@ -1,4 +1,4 @@
-package EAI::DB 0.10;
+package EAI::DB 1.0;
 
 use strict; use feature 'unicode_strings'; use warnings;
 use Exporter qw(import); use DBI qw(:sql_types); use DBD::ODBC (); use Data::Dumper qw(Dumper); use Log::Log4perl qw(get_logger);
@@ -692,7 +692,7 @@ returns 0 on error, 1 if OK
 set handle with externally created DBD::ODBC connection in case newDBH capabilities are not sufficient
 
  $handle .. ref to handle
- $setDSN .. DSN used in handle ((used for calls to newDBH)
+ $setDSN .. DSN used in handle (used for calls to newDBH)
  
 =item getConn
 

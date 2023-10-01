@@ -16,5 +16,5 @@
 	- added possibility to add custom locales in DateUtil, removed exported locale hashes and replaced with accessor functions.
 0.09  Tue Sep 26 23:00:00 2023
 	- refactored flat Dumper into function, moved site.config for automated tests into $ENV{EAI_WRAP_CONFIG_PATH}/t, decoupled EAI::DB completely from EAI::Wrap (no $execute dependency)
-0.10  Thu Sep 28 23:00:00 2023
-	- improved API Doc, enabled overriding of redoDir, logRootPath, historyFolder and historyFolderUpload using commandline parameters, e.g. --config redoDir=/your/redo/folder, prevent error mail (logger) and uncaught exception in sendGeneralMail when no smtp configured; use custom locales in DateUtil in all textual month functions now.
+1.0  Sat Sep 30 12:00:00 2023
+	- improved API Doc, enabled overriding of redoDir, logRootPath, historyFolder and historyFolderUpload using commandline parameters, e.g. --config redoDir=/your/redo/folder, prevent error mail (logger) and uncaught exception in sendGeneralMail when no smtp configured; use custom locales in DateUtil in all textual month functions now; allow anonymous subs in all configuration places, where strings were used (executeOnInit, postDumpProcessing, postReadProcessing, lineCode and fieldCode).

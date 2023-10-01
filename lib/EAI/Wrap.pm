@@ -1,4 +1,4 @@
-package EAI::Wrap 0.10;
+package EAI::Wrap 1.0;
 
 use strict; use feature 'unicode_strings'; use warnings;
 use Exporter qw(import); use Data::Dumper qw(Dumper); use File::Copy qw(copy move); use Cwd qw(chdir); use Archive::Extract ();
@@ -53,8 +53,14 @@ sub INIT {
 		EAI::Common::readConfigFile($_) for sort glob($EAI_WRAP_SENS_CONFIG_PATH."/".$execute{envraw}."/*.config");
 	}
 	EAI::Common::getOptions(); # getOptions before logging setup as centralLogHandling depends on interactive options passed
-	eval $config{executeOnInit} if $config{executeOnInit};
-	die("Error parsing config{executeOnInit} ($config{executeOnInit}): $@") if $@;
+	if ($config{executeOnInit}) {
+		if (ref($config{executeOnInit}) eq "CODE") {
+			eval {$config{executeOnInit}->()};
+		} else {
+			eval $config{executeOnInit};
+		}
+		die("Error parsing config{executeOnInit} ".(ref($config{executeOnInit}) eq "CODE" ? "defined sub" : "'".$config{executeOnInit}."'").": $@") if $@;
+	}
 	$execute{failcount}=0;
 	EAI::Common::setupLogging();
 }
@@ -424,22 +430,21 @@ sub dumpDataIntoDB ($) {
 			}
 			# post processing (Perl code) for config, where postDumpProcessing is defined
 			if ($DB->{postDumpProcessing}) {
-				$logger->info("starting postDumpProcessing");
-				$logger->debug($DB->{postDumpProcessing});
-				eval $DB->{postDumpProcessing};
-				if ($@) {
-					$logger->error("error in eval postDumpProcessing: ".$DB->{postDumpProcessing}.": $@");
-					$hadDBErrors = 1;
-				}
+				$hadDBErrors = evalCustomCode($DB->{postDumpProcessing},"postDumpProcessing");
 			}
 			# post processing (execute in DB!) for all configs, where postDumpExecs conditions and referred execs (DB scripts, that should be executed) are defined
 			if (!$hadDBErrors && $DB->{postDumpExecs}) {
 				$logger->info("starting postDumpExecs ... ");
 				for my $postDumpExec (@{$DB->{postDumpExecs}}) {
 					$logger->info("checking postDumpExec condition: ".$postDumpExec->{condition});
-					my $dopostdumpexec = eval $postDumpExec->{condition};
+					my $dopostdumpexec;
+					if (ref($config{executeOnInit}) eq "CODE") {
+						eval {$dopostdumpexec = eval $postDumpExec->{condition}->();};
+					} else {
+						$dopostdumpexec = eval $postDumpExec->{condition};
+					}
 					if ($@) {
-						$logger->error("error parsing postDumpExec condition: ".$postDumpExec->{condition}.": $@");
+						$logger->error("error parsing postDumpExec condition: ".(ref($postDumpExec->{condition}) eq "CODE" ? "defined sub" : "'".$postDumpExec->{condition}."'").": $@");
 						$hadDBErrors = 1;
 						last;
 					}
@@ -491,6 +496,25 @@ sub dumpDataIntoDB ($) {
 	}
 }
 
+# evaluate custom code contained either in string or ref to sub
+sub evalCustomCode ($$) {
+	my $customCode = shift;
+	my $processingName = shift;
+	my $logger = get_logger();
+	$logger->info("starting $processingName");
+	if (ref($customCode) eq "CODE") {
+		eval {$customCode->()};
+	} else {
+		eval $customCode;
+	}
+	if ($@) {
+		$logger->error("eval of $processingName ".(ref($customCode) eq "CODE" ? "defined sub" : "'".$customCode."'")." returned error:$@");
+		return 0;
+	}
+	return 1;
+}
+
+
 # mark files as being processed depending on whether there were errors, also decide on removal/archiving of downloaded files
 sub markProcessed ($) {
 	my $arg = shift;
@@ -534,8 +558,7 @@ sub writeFileFromDB ($) {
 	$logger->warn("no data retrieved from database for file ".$File->{filename}.", query: ".$DB->{query}) if ($process->{data} and @{$process->{data}} == 0);
 	# prepare for all configs, where postReadProcessing is defined
 	if ($DB->{postReadProcessing}) {
-		eval $DB->{postReadProcessing};
-		$logger->error("error doing postReadProcessing: ".$DB->{postReadProcessing}.": ".$@) if ($@);
+		evalCustomCode($DB->{postReadProcessing},"postReadProcessing");
 	}
 	EAI::File::writeText($File,\@{$process->{data}}) or do {
 		$logger->error("error creating/writing file");
@@ -1038,7 +1061,9 @@ get file/s (can also be a glob for multiple files) from FTP into homedir and ext
 
 argument $arg (ref to current load or common)
 
-combines above two procedures in a general procedure to get files from FTP or locally. Arguments are fetched from common or loads[i], using File and FTP parameters.
+combines above two procedures in a general procedure to get files from FTP or locally. Arguments are fetched from common or loads[i], using File and FTP parameters. 
+
+All get<*Files*> functions also parse the file into the datastructure process{data}. Custom "hooks" can be defined with L<fieldCode|/fieldCode> and L<lineCode|/lineCode> to modify and enhance the standard mapping defined in format_header. To access the final line data the hash %EAI::File::line can be used (specific fields with $EAI::File::line{<target header column>}). if a field is being replaced using a different name from targetheader, the data with the original header name is placed in %EAI::File::templine. You can also access data from the previous line with %EAI::File::previousline and the previous temp line with %EAI::File::previoustempline.
 
 =item checkFiles ($)
 
@@ -1148,7 +1173,7 @@ parameter category for site global settings, defined in site.config and other as
 
 =item checkLookup
 
-used for logchecker, each entry of the hash defines a log to be checked, defining errmailaddress to receive error mails, errmailsubject, timeToCheck as earliest time to check for existence in log, freqToCheck as frequency of checks (daily/monthly/etc), logFileToCheck as the name of the logfile to check, logcheck as the regex to check in the logfile and logRootPath as the folder where the logfile is found. lookup key: $execute{scriptname} + $execute{addToScriptName}
+ref to datastructure {"scriptname.pl" => {errmailaddress => "",errmailsubject => "",timeToCheck =>"", freqToCheck => "", logFileToCheck => "", logcheck => "",logRootPath =>""},...} used for logchecker, each entry of the hash lookup table defines a log to be checked, defining errmailaddress to receive error mails, errmailsubject, timeToCheck as earliest time to check for existence in log, freqToCheck as frequency of checks (daily/monthly/etc), logFileToCheck as the name of the logfile to check, logcheck as the regex to check in the logfile and logRootPath as the folder where the logfile is found. lookup key: $execute{scriptname} + $execute{addToScriptName}
 
 =item errmailaddress
 
@@ -1164,7 +1189,7 @@ code to be executed during INIT of EAI::Wrap to allow for assignment of config/e
 
 =item folderEnvironmentMapping
 
-Mapping for $execute{envraw} to $execute{env}:
+ref to hash {Test => "Test", Dev => "Dev", "" => "Prod"}, mapping for $execute{envraw} to $execute{env}
 
 =item fromaddress
 
@@ -1172,11 +1197,11 @@ from address for central logcheck/errmail sending, also used as default sender a
 
 =item historyFolder
 
-folders where downloaded files are historized, lookup key as checkLookup, default in "" =>
+ref to hash {"scriptname.pl" => "folder"}, folders where downloaded files are historized, lookup key as in checkLookup, default in "" => "defaultfolder"
 
 =item historyFolderUpload
 
-folders where uploaded files are historized, lookup key as checkLookup, default in "" =>
+ref to hash {"scriptname.pl" => "folder"}, folders where uploaded files are historized, lookup key as in checkLookup, default in "" => "defaultfolder"
 
 =item logCheckHoliday
 
@@ -1188,15 +1213,15 @@ logs to be ignored in central logcheck/errmail sending
 
 =item logRootPath
 
-paths to log file root folders (environment is added to that if non production), lookup key as checkLookup, default in "" =>
+ref to hash {"scriptname.pl" => "folder"}, paths to log file root folders (environment is added to that if non production), lookup key as checkLookup, default in "" => "defaultfolder"
 
 =item redoDir
 
-folders where files for redo are contained, lookup key as checkLookup, default in "" =>
+ref to hash {"scriptname.pl" => "folder"}, folders where files for redo are contained, lookup key as checkLookup, default in "" => "defaultfolder"
 
 =item sensitive
 
-hash lookup for sensitive access information in DB and FTP (lookup keys are set with DB{prefix} or FTP{prefix}), may also be placed outside of site.config; all sensitive keys can also be environment lookups, e.g. hostkey=>{Test => "", Prod => ""} to allow for environment specific setting
+hash lookup table ({"prefix" => {user=>"",pwd =>"",hostkey=>"",privkey =>""},...}) for sensitive access information in DB and FTP (lookup keys are set with DB{prefix} or FTP{prefix}), may also be placed outside of site.config; all sensitive keys can also be environment lookups, e.g. hostkey=>{Test => "", Prod => ""} to allow for environment specific setting
 
 =item smtpServer
 
@@ -1408,15 +1433,15 @@ if files from this load should not be dumped to the database
 
 =item postDumpExecs
 
-done in dumpDataIntoDB after postDumpProcessing and before commit/rollback. doInDB everything in execs if condition is fulfilled 
+array for execs done in dumpDataIntoDB after postDumpProcessing and before commit/rollback: [{execs => ['',''], condition => ''}]. doInDB all execs if condition (evaluated string or anonymous sub: condition => sub {...}) is fulfilled
 
 =item postDumpProcessing
 
-done in dumpDataIntoDB after storeInDB, execute perl code in postDumpProcessing
+done in dumpDataIntoDB after storeInDB, execute perl code in postDumpProcessing (evaluated string or anonymous sub: postDumpProcessing => sub {...})
 
 =item postReadProcessing
 
-done in writeFileFromDB after readFromDB, execute perl code in postReadProcessing
+done in writeFileFromDB after readFromDB, execute perl code in postReadProcessing (evaluated string or anonymous sub: postReadProcessing => sub {...})
 
 =item prefix
 
@@ -1440,7 +1465,7 @@ schemaName used in dumpDataIntoDB/storeInDB, if tableName contains dot the extra
 
 =item server
 
-DB Server in environment hash
+DB Server in environment hash lookup: {Prod => "", Test => ""}
 
 =item tablename
 
@@ -1496,7 +1521,7 @@ the extension of the file to be read (optional, used for redoFile)
 
 =item fieldCode
 
-additional field based processing code: fieldCode => {field1 => 'perl code', ..}, invoked if key equals either header (as in format_header) or targetheader (as in format_targetheader) or invoked for all fields if key is empty {"" => 'perl code'}. set $skipLineAssignment to true (1) if current line should be skipped from data.
+additional field based processing code: fieldCode => {field1 => 'perl code', ..}, invoked if key equals either header (as in format_header) or targetheader (as in format_targetheader) or invoked for all fields if key is empty {"" => 'perl code'}. set $EAI::File::skipLineAssignment to true (1) if current line should be skipped from data. perl code can be an evaluated string or an anonymous sub: field1 => sub {...}
 
 =item filename
 
@@ -1620,7 +1645,7 @@ specify xml parsing
 
 =item lineCode
 
-additional line based processing code, invoked after whole line has been read
+additional line based processing code, invoked after whole line has been read (evaluated string or anonymous sub: lineCode => sub {...})
 
 =item localFilesystemPath
 
@@ -1716,7 +1741,7 @@ queue_size for Net::SFTP::Foreign, if > 1 this causes often connection issues
 
 =item remove
 
-for for removing (archived) files with removeFilesOlderX, all files in removeFolders are deleted being older than day=> days, mon=> months and year=> years
+ref to hash {removeFolders=>[], day=>, mon=>, year=>1} for for removing (archived) files with removeFilesOlderX, all files in removeFolders are deleted being older than day days, mon months and year years
 
 =item remoteDir
 
