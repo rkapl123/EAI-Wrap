@@ -1,4 +1,4 @@
-package EAI::DateUtil 1.0;
+package EAI::DateUtil 1.1;
 
 use strict; use warnings; use feature 'unicode_strings'; use utf8;
 use Exporter qw(import); use Time::Local qw( timelocal_modern timegm_modern ); use Time::localtime; use POSIX qw(mktime);
@@ -118,11 +118,17 @@ sub get_curdate_dash_plus_X_years ($;$$) {
 	}
 }
 
-sub get_curtime (;$) {
-	my ($format) = $_[0];
+sub get_curtime (;$$) {
+	my $format = $_[0];
+	my $secondsToAdd = $_[1];
 	$format = "%02d:%02d:%02d" if !$format;
 	no warnings 'redundant';
-	return sprintf($format,localtime->hour(),localtime->min(),localtime->sec());
+	if ($secondsToAdd) {
+		my $dateval = localtime(time()+$secondsToAdd);
+		return sprintf($format,$dateval->hour(),$dateval->min(),$dateval->sec());
+	} else {
+		return sprintf($format,localtime->hour(),localtime->min(),localtime->sec());
+	}
 }
 
 sub get_curtime_HHMM {

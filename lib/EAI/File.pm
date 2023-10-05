@@ -1,4 +1,4 @@
-package EAI::File 1.0;
+package EAI::File 1.1;
 
 use strict; use feature 'unicode_strings'; use warnings; no warnings 'uninitialized';
 use Exporter qw(import);use Text::CSV();use Data::XLSX::Parser();use Spreadsheet::ParseExcel();use Spreadsheet::WriteExcel();use Excel::Writer::XLSX();use Data::Dumper qw(Dumper);use XML::LibXML();use XML::LibXML::Debugging();
@@ -585,7 +585,7 @@ sub writeText ($$) {
 	# open file for writing
 	$logger->debug("writing to ".$filename);
 	open (FHOUT, ">".$File->{format_encoding},$filename) or do {
-		$logger->error("file creation error: $!");
+		$logger->error("file creation error with $filename: $!");
 		return 0;
 	};
 	# write header

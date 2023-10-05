@@ -1,4 +1,4 @@
-package EAI::Common 1.0;
+package EAI::Common 1.1;
 
 use strict; use feature 'unicode_strings'; use warnings; no warnings 'uninitialized';
 use Exporter qw(import); use EAI::DateUtil qw(get_curdate is_holiday); use Data::Dumper qw(Dumper); use Getopt::Long qw(:config no_ignore_case); use Log::Log4perl qw(get_logger); use MIME::Lite (); use Scalar::Util qw(looks_like_number); use Module::Refresh ();
@@ -197,7 +197,7 @@ my %hashCheck = (
 		customHistoryTimestamp => "", # optional custom timestamp to be added to filenames moved to History/HistoryUpload/FTP archive, if not given, get_curdatetime is used (YYYYMMDD_hhmmss)
 		execOnly => "", # used to remove loads where $common{task}{execOnly} !~ $load->{process}{onlyExecFor}
 		ignoreNoTest => 0, # ignore the notest file in the process-script folder, usually preventing all runs that are not in production
-		plannedUntil => "", # latest time that planned repitition should last
+		plannedUntil => 2359, # latest time that planned repetition should start, this can be given either as HHMM (HourMinute) or HHMMSS (HourMinuteSecond), in case of HHMM the "Second" part is attached as 59
 		redoFile => 1, # flag for specifying a redo
 		redoTimestampPatternPart => "", # part of the regex for checking against filename in redo with additional timestamp/redoDir pattern (e.g. "redo", numbers and _), anything after files barename (and before ".$ext" if extension is defined) is regarded as a timestamp. Example: '[\d_]', the regex is built like ($ext ? qr/$barename($redoTimestampPatternPart|$redoDir)*\.$ext/ : qr/$barename($redoTimestampPatternPart|$redoDir)*.*/)
 		retrySecondsErr => 60, # retry period in case of error

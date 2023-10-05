@@ -6,6 +6,7 @@ use ExtUtils::MakeMaker;
 WriteMakefile(
 	NAME          => 'EAI::Wrap',
 	AUTHOR        => 'Roland Kapl',
+	LICENSE       => 'MIT',
 	ABSTRACT_FROM => 'lib/EAI/Wrap.pm',
 	VERSION_FROM  => 'lib/EAI/Wrap.pm',
 	PREREQ_PM     => {

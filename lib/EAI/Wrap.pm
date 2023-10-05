@@ -1,4 +1,4 @@
-package EAI::Wrap 1.0;
+package EAI::Wrap 1.1;
 
 use strict; use feature 'unicode_strings'; use warnings;
 use Exporter qw(import); use Data::Dumper qw(Dumper); use File::Copy qw(copy move); use Cwd qw(chdir); use Archive::Extract ();
@@ -430,7 +430,7 @@ sub dumpDataIntoDB ($) {
 			}
 			# post processing (Perl code) for config, where postDumpProcessing is defined
 			if ($DB->{postDumpProcessing}) {
-				$hadDBErrors = evalCustomCode($DB->{postDumpProcessing},"postDumpProcessing");
+				$hadDBErrors = !evalCustomCode($DB->{postDumpProcessing},"postDumpProcessing");
 			}
 			# post processing (execute in DB!) for all configs, where postDumpExecs conditions and referred execs (DB scripts, that should be executed) are defined
 			if (!$hadDBErrors && $DB->{postDumpExecs}) {
@@ -764,12 +764,13 @@ sub processingEnd {
 			$retrySeconds = $common{task}{retrySecondsErrAfterXfails};
 		}
 		my $nextStartTime = calcNextStartTime($retrySeconds);
-		my $currentTime = EAI::DateUtil::get_curtime_HHMM();
+		my $currentTime = EAI::DateUtil::get_curtime("%02d%02d%02d");
 		my $endTime = $common{task}{plannedUntil};
-		$endTime = "2400" if !$endTime and $processFailed;
-		$endTime = "0000->not set" if !$endTime; # if neither planned nor process failed then endtime is undefined and needs to be lower than any currentTime for next decision
-		if ($failcountFinish or $currentTime >= $endTime or ($nextStartTime =~ /24../)) {
-			$logger->info("finished processing due ".($failcountFinish ? "to reaching set error count \$common{task}{retrySecondsXfails} $common{task}{retrySecondsXfails} and \$common{task}{retrySecondsErrAfterXfails} is false" : "to time out: current time(".$currentTime.") >= endTime(".$endTime.") or nextStartTime(".$nextStartTime.") =~ /24../!"));
+		$endTime .= "59" if length($endTime) == 4;
+		$endTime = "240000" if !$endTime and $processFailed;
+		$endTime = "000000->not set" if !$endTime; # if neither planned nor process failed then endtime is undefined and needs to be lower than any currentTime for next decision
+		if ($failcountFinish or $nextStartTime >= $endTime or ($nextStartTime =~ /24..../)) {
+			$logger->info("finished processing due ".($failcountFinish ? "to reaching set error count \$common{task}{retrySecondsXfails} $common{task}{retrySecondsXfails} and \$common{task}{retrySecondsErrAfterXfails} is false" : "to time out: next start time(".$nextStartTime.") >= endTime(".$endTime.") or after midnight"));
 			moveFilesToHistory($common{task}{customHistoryTimestamp});
 			deleteFiles($execute{filesToDelete}) if $execute{filesToDelete};
 			$execute{processEnd}=1;
@@ -784,12 +785,7 @@ sub processingEnd {
 # helps to calculate next start time
 sub calcNextStartTime ($) {
 	my $seconds = shift;
-	my $hrs = substr(EAI::DateUtil::get_curtime_HHMM(),0,2);
-	my $min = substr(EAI::DateUtil::get_curtime_HHMM(),2,2);
-	# Add time (60 module): 
-	# hour part: including carry of minutes after adding additional minutes ($seconds/60); * 100 for shifting 2 digits left
-	# minute part: integer rest from 60 of (original + additional)
-	return sprintf("%04d",($hrs + int(($min+($seconds/60))/60))*100 + (($min + ($seconds/60))%60));
+	return EAI::DateUtil::get_curtime("%02d%02d%02d",$seconds);
 }
 
 # generally available procedure for pausing processing
@@ -1845,7 +1841,7 @@ ignore the notest file in the process-script folder, usually preventing all runs
 
 =item plannedUntil
 
-latest time that planned repitition should last
+latest time that planned repetition should start, this can be given either as HHMM (HourMinute) or HHMMSS (HourMinuteSecond), in case of HHMM the "Second" part is attached as 59
 
 =item redoFile
 
