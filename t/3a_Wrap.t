@@ -2,7 +2,7 @@ sub INIT {require './t/setup.pl';}
 use strict; use warnings;
 use EAI::Wrap; use Data::Dumper; use Archive::Zip qw( :ERROR_CODES :CONSTANTS ); use File::Copy 'move';
 use Test::More; use Test::File; use File::Spec; use Test::Timer;
-use Test::More tests => 32;
+use Test::More tests => 34;
 chdir "./t";
 
 # 1
@@ -112,7 +112,7 @@ file_not_exists_ok("test.txt","putFileInLocalDir test.txt not here");
 file_exists_ok("localDir/test.txt","putFileInLocalDir test.txt moved");
 
 # 27
-time_ok( sub { processingPause(1); }, 1, 'processingPause one second');
+time_atleast( sub { processingPause(1); }, 1, 'processingPause at least one second');
 
 # 28
 $common{task}{redoFile} = 0;
@@ -128,6 +128,13 @@ is_deeply($process{filenames}, ["testContent.txt"], "extractArchives \$process{f
 is_deeply($process{archivefilenames}, ["test.zip"], "extractArchives \$process{archivefilenames} test.zip");
 # 32
 is_deeply($execute{retrievedFiles}, [], "extractArchives \$execute{retrievedFiles} empty");
+# 33
+my $hadDBErrors = 0;
+EAI::Wrap::evalCustomCode(sub {$hadDBErrors = 1;},"evalCustomCodeTest1",\$hadDBErrors);
+is($hadDBErrors,1,"evalCustomCode set \$hadDBErrors correctly with anon sub");
+# 34
+EAI::Wrap::evalCustomCode('$hadDBErrors = 2;',"evalCustomCodeTest2",\$hadDBErrors);
+is($hadDBErrors,2,"evalCustomCode set \$hadDBErrors correctly with string eval");
 
 unlink "test.zip";
 unlink "test.txt";

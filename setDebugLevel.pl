@@ -1,6 +1,6 @@
 use strict; use feature 'unicode_strings';
-my $mainLoop = 1; 
-my %levels = ("e" => "ERROR", "i" => "INFO", "d" => "DEBUG", "t" => "TRACE");
+
+my %levels = ("f" => "FATAL", "e" => "ERROR", "i" => "INFO", "d" => "DEBUG", "t" => "TRACE");
 my %appenders = ("s" => "SCREEN", "m" => "MAIL", "f" => "FILE");
 # main loop: read log.config and write back changes made by user choices
 while (1) {
@@ -17,7 +17,7 @@ while (1) {
 		$i+=1;
 	} until($datalines[$i-1] eq "" or $datalines[$i-1] eq "\r");
 	# ask user for choices of logger to change
-	print "\nenter first logger (1..".($i-1).") or (#) to invert comments globally,\nthen level to change to ((E)RROR, (I)NFO, (D)EBUG, (T)RACE) or (#) to comment the logger in/out,\nand finally optional appenders ((S)CREEN, (M)AIL, (F)ILE) not for rootLogger!), only possible with changing the level.\n(no entry ends the program):";
+	print "\nenter first logger (1..".($i-1).") or (#) to invert comments globally,\nthen level to change to ((F)ATAL, (E)RROR, (I)NFO, (D)EBUG, (T)RACE) or (#) to comment the logger in/out,\nand finally optional appenders ((S)CREEN, (M)AIL, (F)ILE) not for rootLogger!), only possible with changing the level.\n(no entry ends the program):";
 	my $choice= <STDIN>; chomp $choice;
 	last if !$choice; # break out of loop
 	my ($loggerToChange,$level,$appenders) = ($choice =~ /^(.)(.)(.*?)$/);
@@ -94,4 +94,44 @@ sub write_file {
 
 	return;
 }
+__END__
+=head1 NAME
 
+setDebugLevel.pl - small UI for setting debug levels and appenders for the various loggers (main script, and each EAI::Wrap package)
+
+=head1 SYNOPSIS
+
+ setDebugLevel.pl
+
+=head1 DESCRIPTION
+
+Following screen (example) is offered when calling setDebugLevel:
+
+ Use setDebugLevel to change the following entries from $ENV{EAI_WRAP_CONFIG_PATH}/log.config:
+
+ 1: log4perl.rootLogger = INFO, FILE, SCREEN, MAIL
+ 2: #log4perl.logger.main = DEBUG
+ 3: #log4perl.logger.EAI.Wrap = DEBUG
+ 4: #log4perl.logger.EAI.DB = DEBUG
+ 5: #log4perl.logger.EAI.FTP = DEBUG
+ 6: #log4perl.logger.EAI.File = DEBUG
+ 7: #log4perl.logger.EAI.Common = DEBUG
+ 
+ enter first logger (1..7) or (#) to invert comments globally,
+ then level to change to ((F)ATAL, (E)RROR, (I)NFO, (D)EBUG, (T)RACE) or (#) to comment the logger in/out,
+ and finally optional appenders ((S)CREEN, (M)AIL, (F)ILE) not for rootLogger!), only possible with changing the level.
+ (no entry ends the program):
+
+use entries to manipulate log.config in the described way, e.g. 1t to enable general tracing, 2# to uncomment the main logger (which then overrides the rootLoggers INFO level), 3e to set log leverl to error for EAI::Wrap (to enable this logger you have to uncomment it with 3# !).
+
+=head1 COPYRIGHT
+
+Copyright (c) 2023 Roland Kapl
+
+All rights reserved.  This program is free software; you can
+redistribute it and/or modify it under the same terms as Perl itself.
+
+The full text of the license can be found in the LICENSE file included
+with this module.
+
+=cut

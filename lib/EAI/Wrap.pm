@@ -1,4 +1,4 @@
-package EAI::Wrap 1.1;
+package EAI::Wrap 1.2;
 
 use strict; use feature 'unicode_strings'; use warnings;
 use Exporter qw(import); use Data::Dumper qw(Dumper); use File::Copy qw(copy move); use Cwd qw(chdir); use Archive::Extract ();
@@ -430,7 +430,7 @@ sub dumpDataIntoDB ($) {
 			}
 			# post processing (Perl code) for config, where postDumpProcessing is defined
 			if ($DB->{postDumpProcessing}) {
-				$hadDBErrors = !evalCustomCode($DB->{postDumpProcessing},"postDumpProcessing");
+				evalCustomCode($DB->{postDumpProcessing},"postDumpProcessing",\$hadDBErrors);
 			}
 			# post processing (execute in DB!) for all configs, where postDumpExecs conditions and referred execs (DB scripts, that should be executed) are defined
 			if (!$hadDBErrors && $DB->{postDumpExecs}) {
@@ -497,21 +497,18 @@ sub dumpDataIntoDB ($) {
 }
 
 # evaluate custom code contained either in string or ref to sub
-sub evalCustomCode ($$) {
-	my $customCode = shift;
-	my $processingName = shift;
+sub evalCustomCode ($$;$) {
+	my ($customCode,$processingName,$hadDBErrorsRef) = @_;
 	my $logger = get_logger();
 	$logger->info("starting $processingName");
 	if (ref($customCode) eq "CODE") {
 		eval {$customCode->()};
 	} else {
+		my $hadDBErrors;
 		eval $customCode;
+		$$hadDBErrorsRef = $hadDBErrors;
 	}
-	if ($@) {
-		$logger->error("eval of $processingName ".(ref($customCode) eq "CODE" ? "defined sub" : "'".$customCode."'")." returned error:$@");
-		return 0;
-	}
-	return 1;
+	$logger->error("eval of $processingName ".(ref($customCode) eq "CODE" ? "defined sub" : "'".$customCode."'")." returned error:$@") if $@;
 }
 
 

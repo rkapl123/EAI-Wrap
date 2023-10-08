@@ -1,4 +1,4 @@
-package EAI::File 1.1;
+package EAI::File 1.2;
 
 use strict; use feature 'unicode_strings'; use warnings; no warnings 'uninitialized';
 use Exporter qw(import);use Text::CSV();use Data::XLSX::Parser();use Spreadsheet::ParseExcel();use Spreadsheet::WriteExcel();use Excel::Writer::XLSX();use Data::Dumper qw(Dumper);use XML::LibXML();use XML::LibXML::Debugging();
@@ -132,7 +132,7 @@ LINE:
 				}
 				$lineno++;
 				next LINE if $line[0] eq "" and !$lineProcessing;
-				readRow($data,\@line,\@previousline,\@header,\@targetheader,$rawline,$lineProcessing,$fieldProcessing,$thousandsep,$decimalsep,$lineno);
+				readRow($data,\@line,\@header,\@targetheader,$rawline,$lineProcessing,$fieldProcessing,$thousandsep,$decimalsep,$lineno);
 			}
 		}
 		close FILE;
@@ -366,7 +366,7 @@ LINE:
 					$line[$i] = $dataRows{$lineno}{$i+1};
 				}
 			}
-			readRow($data,\@line,\@previousline,\@header,\@targetheader,undef,$lineProcessing,$fieldProcessing,$thousandsep,$decimalsep,$lineno);
+			readRow($data,\@line,\@header,\@targetheader,undef,$lineProcessing,$fieldProcessing,$thousandsep,$decimalsep,$lineno);
 		}
 		close FILE;
 		if (scalar(@{$data}) == 0 and !$File->{emptyOK}) {
@@ -420,10 +420,8 @@ sub readXML ($$$;$) {
 		$logger->trace("total document content: ".$xpc->getContextNode->toClarkML()) if $logger->is_trace;
 		# iterate through all rows of file
 		my $lineno = 0;
-		my (@line,@previousline);
 		foreach my $record (@records) {
-			@previousline = @line;
-			@line = undef;
+			my @line;
 			# get @line from stored values
 			if (ref($record) eq "XML::LibXML::Element") {
 				$logger->trace("node content: ".$record->toClarkML()) if $logger->is_trace;
@@ -442,7 +440,7 @@ sub readXML ($$$;$) {
 				}
 			}
 			$lineno++;
-			readRow($data,\@line,\@previousline,\@header,\@targetheader,undef,$lineProcessing,$fieldProcessing,$thousandsep,$decimalsep,$lineno);
+			readRow($data,\@line,\@header,\@targetheader,undef,$lineProcessing,$fieldProcessing,$thousandsep,$decimalsep,$lineno);
 		}
 		if (!$data and !$File->{emptyOK}) {
 			$logger->error("empty file: $filename, no data returned");
@@ -455,21 +453,20 @@ sub readXML ($$$;$) {
 # if field is being replaced by a different name from targetheader, the data with the original name is placed in %templine (for further actions in $lineProcessing)
 # the final value is put in $line{$targetheader}.
 # there is also data from the previous line (%previousline) and the previous temp line (%previoustempline).
-our (%line,%templine,%previousline,%previoustempline);
-our $skipLineAssignment; # can be set in fieldCode, to avoid further assignment to data.
+#our (%line,%templine);
+#our $skipLineAssignment
 
 # read row into final line hash (including special "hook" code)
-sub readRow ($$$$$$$$$$$) {
-	my ($data,$line,$previousline,$header,$targetheader,$rawline,$lineProcessing,$fieldProcessing,$thousandsep,$decimalsep,$lineno) = @_;
+sub readRow ($$$$$$$$$$) {
+	my ($data,$line,$header,$targetheader,$rawline,$lineProcessing,$fieldProcessing,$thousandsep,$decimalsep,$lineno) = @_;
 	my @line = @$line;
-	my @previousline = @$previousline;
 	my @header = @$header;
 	my @targetheader = @$targetheader;
 	my $logger = get_logger();
-	$skipLineAssignment = 0;
-	%line=();%templine=();%previousline=();%previoustempline=();
+	my $skipLineAssignment = 0; # can be set in fieldCode, to avoid further assignment to data.
+	my (%line,%templine);
 
-	$logger->trace("line: @{$line},previousline: @{$previousline},header: @{$header},targetheader: @{$targetheader},rawline: $rawline, lineProcessing: $lineProcessing, thousandsep: $thousandsep,decimalsep: $decimalsep,lineno: $lineno") if $logger->is_trace;
+	$logger->trace("line:@{$line},header:@{$header},targetheader:@{$targetheader},rawline:$rawline,lineProcessing:$lineProcessing,thousandsep:$thousandsep,decimalsep:$decimalsep,lineno:$lineno") if $logger->is_trace;
 	# iterate through fields of current row
 	for (my $i = 0; $i < @line; $i++) {
 		# first trim leading and trailing spaces
@@ -485,32 +482,27 @@ sub readRow ($$$$$$$$$$$) {
 		if ($header[$i] ne $targetheader[$i]) {
 			# prevent autovivification of hash entries, if $i is potentially > @header or > @targetheader
 			$line{$targetheader[$i]} = $line[$i] if $targetheader[$i];
-			$previousline{$targetheader[$i]} = $previousline[$i] if $targetheader[$i];
 			$templine{$header[$i]} = $line[$i] if $header[$i];
-			$previoustempline{$header[$i]} = $previousline[$i] if $header[$i];
 		} else {
 			$line{$header[$i]} = $line[$i] if $header[$i];
-			$previousline{$header[$i]} = $previousline[$i] if $header[$i];
 		}
 		# field specific processing set, augments processing for a single specific field specified by targetheader...
 		if ($fieldProcessing->{$targetheader[$i]}) {
 			$logger->trace('BEFORE: $targetheader['.$i.']:'.$targetheader[$i].',$line{'.$targetheader[$i].']:'.$line{$targetheader[$i]}.',fieldProcessing{',$targetheader[$i],'}:'.$fieldProcessing->{$targetheader[$i]}) if $logger->is_trace;
-			evalCustomCode($fieldProcessing->{$targetheader[$i]});
+			evalCustomCode($fieldProcessing->{$targetheader[$i]},$data,$line,\%line,$header,$targetheader,$rawline,$thousandsep,$decimalsep,$lineno,$i);
 			$logger->trace('AFTER: $targetheader['.$i.']:'.$targetheader[$i].',$line{'.$targetheader[$i].']:'.$line{$targetheader[$i]}.",\$skipLineAssignment: $skipLineAssignment, line: $lineno") if $logger->is_trace;
 		} elsif ($fieldProcessing->{""}) { # special case: if empty key is defined with processing code, do for all fields
 			$logger->trace('BEFORE: $targetheader['.$i.']:'.$targetheader[$i].',$line{'.$targetheader[$i].']:'.$line{$targetheader[$i]}.',fieldProcessing{',$targetheader[$i],'}:'.$fieldProcessing->{$targetheader[$i]}) if $logger->is_trace;
-			evalCustomCode($fieldProcessing->{""});
+			evalCustomCode($fieldProcessing->{""},$data,$line,\%line,$header,$targetheader,$rawline,$thousandsep,$decimalsep,$lineno,$i);
 			$logger->trace('AFTER: $targetheader['.$i.']:'.$targetheader[$i].',$line{'.$targetheader[$i].']:'.$line{$targetheader[$i]}.",\$skipLineAssignment: $skipLineAssignment, line: $lineno") if $logger->is_trace;
 		}
 	}
 	# additional row processing defined
 	if ($lineProcessing) {
-		evalCustomCode($lineProcessing);
+		evalCustomCode($lineProcessing,$data,$line,\%line,$header,$targetheader,$rawline,$thousandsep,$decimalsep,$lineno);
 		if ($logger->is_trace) {
 			$logger->trace("lineProcessing:".$lineProcessing.",line: $lineno");
 			$logger->trace("templine:\n".Dumper(\%templine));
-			$logger->trace("previousline:\n".Dumper(\%previousline));
-			$logger->trace("previoustempline:\n".Dumper(\%previoustempline));
 		}
 	}
 	$logger->trace("line:\n".Dumper(\%line)) if $logger->is_trace and !$skipLineAssignment;
@@ -518,15 +510,23 @@ sub readRow ($$$$$$$$$$$) {
 	push @{$data}, {%line} if %line and !$skipLineAssignment;
 }
 
-# evaluate custom code contained either in string or ref to sub
-sub evalCustomCode ($) {
-	my $customCode = shift;
+# evaluate custom code contained either in string or ref to sub. important data is passed on as parameters.
+sub evalCustomCode ($$$$$$$$$$;$) {
+	my ($customCode,$data,$line,$linehash,$header,$targetheader,$rawline,$thousandsep,$decimalsep,$lineno,$i) = @_;
+	my @data = @$data;
+	my @line = @$line;
+	my @header = @$header;
+	my @targetheader = @$targetheader;
+	my $logger = get_logger();
+
 	if (ref($customCode) eq "CODE") {
 		eval {$customCode->()};
 	} else {
+		my %line = %$linehash;
 		eval $customCode;
+		%$linehash = %line;
 	}
-	get_logger()->error("eval of ".(ref($customCode) eq "CODE" ? "defined sub" : "'".$customCode."'")." returned error:$@") if ($@);
+	$logger->error("eval of ".(ref($customCode) eq "CODE" ? "defined sub" : "'".$customCode."'")." returned error:$@") if ($@);
 }
 
 # write text file

@@ -12,6 +12,7 @@ sub INIT {
 #	sensitive => {sftp => {user => "yourSFTPUser", pwd => "yourSFTPUserPwd", privKey=>'yourPrivateKeyFileIfNeeded', hostkey=>'yourHostKeyIfNeeded'},},
 #	checkLookup => {"3b_Wrap_Integration.tAddSuffix" => {errmailaddress => "foundEmailAddress"}},
 #	executeOnInit => '$execute{addToScriptName} = "AddSuffix";',
+#	or executeOnInit => sub {$execute{addToScriptName} = "AddSuffix";'},
 #	folderEnvironmentMapping => {t => "t",},
 #	errmailaddress => 'yourMailAddress',
 #	errmailsubject => "No errMailSubject defined",

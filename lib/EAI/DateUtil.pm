@@ -1,4 +1,4 @@
-package EAI::DateUtil 1.1;
+package EAI::DateUtil 1.2;
 
 use strict; use warnings; use feature 'unicode_strings'; use utf8;
 use Exporter qw(import); use Time::Local qw( timelocal_modern timegm_modern ); use Time::localtime; use POSIX qw(mktime);
@@ -122,7 +122,6 @@ sub get_curtime (;$$) {
 	my $format = $_[0];
 	my $secondsToAdd = $_[1];
 	$format = "%02d:%02d:%02d" if !$format;
-	no warnings 'redundant';
 	if ($secondsToAdd) {
 		my $dateval = localtime(time()+$secondsToAdd);
 		return sprintf($format,$dateval->hour(),$dateval->min(),$dateval->sec());
@@ -493,7 +492,7 @@ EAI::DateUtil - Date and Time helper functions for L<EAI::Wrap>
  get_curdate_gen ([$template])
  get_curdate_dash ()
  get_curdate_dash_plus_X_years ($years)
- get_curtime ()
+ get_curtime ([$format, $secondsToAdd])
  get_curtime_HHMM ()
  is_first_day_of_month ($date YYYYMMDD)
  is_last_day_of_month ($date YYYYMMDD, [$cal])
@@ -608,11 +607,12 @@ returns current date in format DD-MM-YYYY
 
 returns (current or given) date + X years in format DD-MM-YYYY
 
-=item get_curtime
+=item get_curtime (;$$)
 
-returns current time in format HH:MM:SS (or as given in formatstring $format, however ordering of format is always hour, minute and second)
+returns current time in format HH:MM:SS + optional $secondsToAdd (or as given in formatstring $format, however ordering of format is always hour, minute and second)
 
- $format .. optional sprintf format string (e.g. %02d:%02d:%02d) for hour, minute and second
+ $format .. optional sprintf format string (e.g. %02d:%02d:%02d) for hour, minute and second. If less than three tags are passed then a warning is "Redundant argument in sprintf at ..." is thrown here.
+ $secondsToAdd .. optional seconds to add to current time before returning
 
 =item get_curtime_HHMM
 
