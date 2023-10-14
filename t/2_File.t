@@ -102,28 +102,28 @@ is_deeply($data,$expected_datastruct,"read in XML data is expected content");
 # 13 evalCustomCode anon sub
 $data =[];
 my $expected_line = {testCol1 => 1,testCol2 => "test"};
-my (%line,@line,@header,@targetheader,$rawline,$thousandsep,$decimalsep,$lineno,$i);
+my (%line,%templine,@line,@header,@targetheader,$rawline,$thousandsep,$decimalsep,$lineno,$i);
 @line=(1,"test");@header=("testSrcCol1","testSrcCol2");@targetheader=("testCol1","testCol2");
 %line=();$i=0;
-EAI::File::evalCustomCode(sub {$line{testCol1}=$line[$i];$line{testCol2}="test";},$data,\@line,\%line,\@header,\@targetheader,$rawline,$thousandsep,$decimalsep,$lineno,$i);
+EAI::File::evalCustomCode(sub {$line{testCol1}=$line[$i];$line{testCol2}="test";},$data,\@line,\%line,\%templine,\@header,\@targetheader,$rawline,$thousandsep,$decimalsep,$lineno,$i);
 is_deeply(\%line,$expected_line,"evalCustomCode set \$line correctly with anon sub");
 push @{$data}, {%line};
 
 # 14 evalCustomCode string eval
 $expected_line = {testCol1 => 1,testCol2 => "test123"};
-EAI::File::evalCustomCode('$line{testCol2}="test123";',$data,\@line,\%line,\@header,\@targetheader,$rawline,$thousandsep,$decimalsep,$lineno,$i);
+EAI::File::evalCustomCode('$line{testCol2}="test123";',$data,\@line,\%line,\%templine,\@header,\@targetheader,$rawline,$thousandsep,$decimalsep,$lineno,$i);
 is_deeply(\%line,$expected_line,"evalCustomCode set \$line correctly with string eval");
 
 # 15 evalCustomCode string eval getting previous line with access to $data
 $lineno=0;
-EAI::File::evalCustomCode('$line{testCol2}=$data[$lineno]{testCol2};',$data,\@line,\%line,\@header,\@targetheader,$rawline,$thousandsep,$decimalsep,$lineno,$i);
+EAI::File::evalCustomCode('$line{testCol2}=$data[$lineno]{testCol2};',$data,\@line,\%line,\%templine,\@header,\@targetheader,$rawline,$thousandsep,$decimalsep,$lineno,$i);
 $expected_line = {testCol1 => 1,testCol2 => "test"};
 is_deeply(\%line,$expected_line,"evalCustomCode set \$line correctly with string eval getting previous line with access to \$data");
 
 # 16 evalCustomCode anon sub getting previous line with access to $data. $data needs to be accessed by dereferencing, otherwise we get a compiler error here (@data is not declared)
-EAI::File::evalCustomCode(sub {$line{testCol1}=$data->[$lineno]{testCol2};},$data,\@line,\%line,\@header,\@targetheader,$rawline,$thousandsep,$decimalsep,$lineno,$i);
+EAI::File::evalCustomCode(sub {$line{testCol1}=$data->[$lineno]{testCol2};},$data,\@line,\%line,\%templine,\@header,\@targetheader,$rawline,$thousandsep,$decimalsep,$lineno,$i);
 $expected_line = {testCol1 => "test",testCol2 => "test"};
-is_deeply(\%line,$expected_line,"evalCustomCode set \$line correctly with string eval getting previous line with access to \$data");
+is_deeply(\%line,$expected_line,"evalCustomCode set \$line correctly with anon sub  getting previous line with access to \$data");
 
 unlink "Testout.txt";
 unlink "Testout.csv";

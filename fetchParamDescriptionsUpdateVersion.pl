@@ -44,6 +44,8 @@ for my $libfile ("Common","File","FTP","DB","DateUtil") {
 	$data =~ s/^package EAI::(.*?) (.*?);\n(.*?)/package EAI::$1 $newVersion;\n$3/s if $newVersion;
 	write_file("lib/EAI/$libfile.pm", $data);
 }
+print "enter to finish.";
+<STDIN>;
 
 sub read_file {
 	my ($filename) = @_;

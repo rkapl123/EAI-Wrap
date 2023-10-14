@@ -1,4 +1,4 @@
-package EAI::File 1.2;
+package EAI::File 1.3;
 
 use strict; use feature 'unicode_strings'; use warnings; no warnings 'uninitialized';
 use Exporter qw(import);use Text::CSV();use Data::XLSX::Parser();use Spreadsheet::ParseExcel();use Spreadsheet::WriteExcel();use Excel::Writer::XLSX();use Data::Dumper qw(Dumper);use XML::LibXML();use XML::LibXML::Debugging();
@@ -440,7 +440,7 @@ sub readXML ($$$;$) {
 				}
 			}
 			$lineno++;
-			readRow($data,\@line,\@header,\@targetheader,undef,$lineProcessing,$fieldProcessing,$thousandsep,$decimalsep,$lineno);
+			readRow($data,\@line,\@header,\@targetheader,$xpc,$lineProcessing,$fieldProcessing,$thousandsep,$decimalsep,$lineno);
 		}
 		if (!$data and !$File->{emptyOK}) {
 			$logger->error("empty file: $filename, no data returned");
@@ -489,17 +489,17 @@ sub readRow ($$$$$$$$$$) {
 		# field specific processing set, augments processing for a single specific field specified by targetheader...
 		if ($fieldProcessing->{$targetheader[$i]}) {
 			$logger->trace('BEFORE: $targetheader['.$i.']:'.$targetheader[$i].',$line{'.$targetheader[$i].']:'.$line{$targetheader[$i]}.',fieldProcessing{',$targetheader[$i],'}:'.$fieldProcessing->{$targetheader[$i]}) if $logger->is_trace;
-			evalCustomCode($fieldProcessing->{$targetheader[$i]},$data,$line,\%line,$header,$targetheader,$rawline,$thousandsep,$decimalsep,$lineno,$i);
+			evalCustomCode($fieldProcessing->{$targetheader[$i]},$data,$line,\%line,\%templine,$header,$targetheader,$rawline,$thousandsep,$decimalsep,$lineno,$i);
 			$logger->trace('AFTER: $targetheader['.$i.']:'.$targetheader[$i].',$line{'.$targetheader[$i].']:'.$line{$targetheader[$i]}.",\$skipLineAssignment: $skipLineAssignment, line: $lineno") if $logger->is_trace;
 		} elsif ($fieldProcessing->{""}) { # special case: if empty key is defined with processing code, do for all fields
 			$logger->trace('BEFORE: $targetheader['.$i.']:'.$targetheader[$i].',$line{'.$targetheader[$i].']:'.$line{$targetheader[$i]}.',fieldProcessing{',$targetheader[$i],'}:'.$fieldProcessing->{$targetheader[$i]}) if $logger->is_trace;
-			evalCustomCode($fieldProcessing->{""},$data,$line,\%line,$header,$targetheader,$rawline,$thousandsep,$decimalsep,$lineno,$i);
+			evalCustomCode($fieldProcessing->{""},$data,$line,\%line,\%templine,$header,$targetheader,$rawline,$thousandsep,$decimalsep,$lineno,$i);
 			$logger->trace('AFTER: $targetheader['.$i.']:'.$targetheader[$i].',$line{'.$targetheader[$i].']:'.$line{$targetheader[$i]}.",\$skipLineAssignment: $skipLineAssignment, line: $lineno") if $logger->is_trace;
 		}
 	}
 	# additional row processing defined
 	if ($lineProcessing) {
-		evalCustomCode($lineProcessing,$data,$line,\%line,$header,$targetheader,$rawline,$thousandsep,$decimalsep,$lineno);
+		evalCustomCode($lineProcessing,$data,$line,\%line,\%templine,$header,$targetheader,$rawline,$thousandsep,$decimalsep,$lineno);
 		if ($logger->is_trace) {
 			$logger->trace("lineProcessing:".$lineProcessing.",line: $lineno");
 			$logger->trace("templine:\n".Dumper(\%templine));
@@ -511,8 +511,8 @@ sub readRow ($$$$$$$$$$) {
 }
 
 # evaluate custom code contained either in string or ref to sub. important data is passed on as parameters.
-sub evalCustomCode ($$$$$$$$$$;$) {
-	my ($customCode,$data,$line,$linehash,$header,$targetheader,$rawline,$thousandsep,$decimalsep,$lineno,$i) = @_;
+sub evalCustomCode ($$$$$$$$$$$;$) {
+	my ($customCode,$data,$line,$linehash,$templinehash,$header,$targetheader,$rawline,$thousandsep,$decimalsep,$lineno,$i) = @_;
 	my @data = @$data;
 	my @line = @$line;
 	my @header = @$header;
@@ -523,8 +523,10 @@ sub evalCustomCode ($$$$$$$$$$;$) {
 		eval {$customCode->()};
 	} else {
 		my %line = %$linehash;
+		my %templine = %$templinehash;
 		eval $customCode;
 		%$linehash = %line;
+		%$templinehash = %templine;
 	}
 	$logger->error("eval of ".(ref($customCode) eq "CODE" ? "defined sub" : "'".$customCode."'")." returned error:$@") if ($@);
 }

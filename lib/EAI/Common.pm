@@ -1,4 +1,4 @@
-package EAI::Common 1.2;
+package EAI::Common 1.3;
 
 use strict; use feature 'unicode_strings'; use warnings; no warnings 'uninitialized';
 use Exporter qw(import); use EAI::DateUtil; use Data::Dumper qw(Dumper); use Getopt::Long qw(:config no_ignore_case); use Log::Log4perl qw(get_logger); use MIME::Lite (); use Scalar::Util qw(looks_like_number); use Module::Refresh ();
@@ -493,7 +493,7 @@ sub setupLogging {
 	}
 	$LogFPath = $logFolder."/".$execute{scriptname}.".log";
 	$LogFPathDayBefore = $logFolder."/".get_curdate().".". $execute{scriptname}.".log"; # if mail is watched next day, show the rolled file here
-	$logConfig = $EAI_WRAP_CONFIG_PATH."/".$execute{envraw}."/log.config"; # environment dependent log config, Prod is in EAI_WRAP_CONFIG_PATH
+	$logConfig = $EAI_WRAP_CONFIG_PATH."/".$execute{env}."/log.config"; # environment dependent log config, Prod is either in EAI_WRAP_CONFIG_PATH/.$execute{env} or EAI_WRAP_CONFIG_PATH
 	$logConfig = $EAI_WRAP_CONFIG_PATH."/log.config" if (! -e $logConfig); # fall back to main config log.config
 	die "log.config neither in $logConfig nor in ".$EAI_WRAP_CONFIG_PATH."/log.config" if (! -e $logConfig);
 	Log::Log4perl::init($logConfig);

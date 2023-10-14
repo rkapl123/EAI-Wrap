@@ -22,3 +22,5 @@
 	- fixed hadDBError setting in EAI::Wrap::dumpDataIntoDB, enhanced plannedUntil to allow/show seconds, added setDebugLevel Tool for really quick changing log.config
 1.2  Sun Oct 08 23:00:00 2023
 	- fixed some problems in checkLogExist.pl, removed no warnings 'redundant' in DateUtil (causes problems with perl<5.20 tests), remove @previousline and @previoustempline in EAI::File as previous lines can anyway accessed using $data, fixed evalCustomCode in both EAI::File and EAI::Wrap and added some testcases.
+1.3  Sat Oct 14 12:00:00 2023
+	- removed timing test in Wrap.t (causes problems on sime CPAN testsites), added %templine in EAI::File, changed first looking up log.config from $ENV{EAI_WRAP_CONFIG_PATH}/$execute{envraw} to $ENV{EAI_WRAP_CONFIG_PATH}/$execute{env}, enhanced setDebugLevel.pl to switch between $ENV{EAI_WRAP_CONFIG_PATH}/$execute{env}/log.config and $ENV{EAI_WRAP_CONFIG_PATH}/log.config.

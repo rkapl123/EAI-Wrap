@@ -1,4 +1,4 @@
-package EAI::Wrap 1.2;
+package EAI::Wrap 1.3;
 
 use strict; use feature 'unicode_strings'; use warnings;
 use Exporter qw(import); use Data::Dumper qw(Dumper); use File::Copy qw(copy move); use Cwd qw(chdir); use Archive::Extract ();
@@ -1002,7 +1002,7 @@ The merge inheritance for L<DB|/DB>, L<FTP|/FTP>, L<File|/File> and L<task|/task
 
 =item %execute
 
-hash of parameters for current task execution which is not set by the user but can be used to set other parameters and control the flow. Most important here are C<$execute{env}> giving the current used environment (Prod, Test, Dev, whatever), C<$execute{envraw}> (Production is empty here), the several files lists (being procesed, for deletion, moving, etc.), flags for ending/interrupting processing, directory locations as home and history, etc.
+hash of parameters for current task execution which is not set by the user but can be used to set other parameters and control the flow. Most important here are C<$execute{env}>, giving the current used environment (Prod, Test, Dev, whatever), C<$execute{envraw}> (Production is empty here), the several file lists (files being procesed, files for deletion/moving, etc.), flags for ending/interrupting processing and directory locations as home and history
 
 Detailed information about the several parameters used can be found in section L<execute|/execute> of the configuration parameter reference, there are parameters for files (L<filesProcessed|/filesProcessed>, L<filesToArchive|/filesToArchive>, L<filesToDelete|/filesToDelete>, L<filesToMoveinHistory|/filesToMoveinHistory>, L<filesToMoveinHistoryUpload|/filesToMoveinHistoryUpload>, L<filesToRemove|/filesToRemove> and L<retrievedFiles|/retrievedFiles>), directories (L<homedir|/homedir>, L<historyFolder|/historyFolder>, L<historyFolderUpload|/historyFolderUpload> and L<redoDir|/redoDir>), process controlling parameters (L<failcount|/failcount>, L<firstRunSuccess|/firstRunSuccess>, L<retryBecauseOfError|/retryBecauseOfError>, L<retrySeconds|/retrySeconds> and L<processEnd|/processEnd>).
 

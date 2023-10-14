@@ -1,81 +1,111 @@
-use strict; use feature 'unicode_strings';
+use EAI::Common; use strict; use feature 'unicode_strings';
 
 my %levels = ("f" => "FATAL", "e" => "ERROR", "i" => "INFO", "d" => "DEBUG", "t" => "TRACE");
 my %appenders = ("s" => "SCREEN", "m" => "MAIL", "f" => "FILE");
+# set up using site.config
+$EAI_WRAP_CONFIG_PATH = ($ENV{EAI_WRAP_CONFIG_PATH} ? $ENV{EAI_WRAP_CONFIG_PATH} : "");
+EAI::Common::readConfigFile($EAI_WRAP_CONFIG_PATH."/site.config") if -e $EAI_WRAP_CONFIG_PATH."/site.config";
+EAI::Common::readConfigFile($_) for sort glob($EAI_WRAP_CONFIG_PATH."/additional/*.config");
+my ($homedirnode) = (File::Basename::dirname(File::Spec->rel2abs((caller(0))[1])) =~ /^.*[\\\/](.*?)$/);
+my $env = $config{folderEnvironmentMapping}{$homedirnode};
+if (!$env) {
+	# if not configured, use default mapping (usually ''=>"Prod" for production)
+	$env = $config{folderEnvironmentMapping}{''};
+}
+my $logconfig = "$ENV{EAI_WRAP_CONFIG_PATH}/$env/log.config";
 # main loop: read log.config and write back changes made by user choices
 while (1) {
 	system $^O eq 'MSWin32' ? 'cls' : 'clear'; # clear screen first
-	my $data = read_file ($ENV{EAI_WRAP_CONFIG_PATH}."/log.config");
-	my @datalines = split('\n',$data);
-	my $i=1; my %toChange; my %levelToChange;
-	# print loggers with levels to screen, collecting them for later change
-	print "Use setDebugLevel to change the following entries from $ENV{EAI_WRAP_CONFIG_PATH}/log.config:\n\n";
-	do {
-		print "$i: $datalines[$i-1]\n";
-		($toChange{$i},$levelToChange{$i}) = ($datalines[$i-1] =~ /(.+?) = (.+?)$/) if $datalines[$i-1] =~ /(.+?) = (.+?)$/;
-		($toChange{$i},$levelToChange{$i}) = ($datalines[$i-1] =~ /(.+?) = (.+?),.*$/) if $datalines[$i-1] =~ /(.+?) = (.+?),.*$/;
-		$i+=1;
-	} until($datalines[$i-1] eq "" or $datalines[$i-1] eq "\r");
-	# ask user for choices of logger to change
-	print "\nenter first logger (1..".($i-1).") or (#) to invert comments globally,\nthen level to change to ((F)ATAL, (E)RROR, (I)NFO, (D)EBUG, (T)RACE) or (#) to comment the logger in/out,\nand finally optional appenders ((S)CREEN, (M)AIL, (F)ILE) not for rootLogger!), only possible with changing the level.\n(no entry ends the program):";
+	my $data = read_file ($logconfig);
+	my (@datalines, $i,%toChange, %levelToChange);
+	if ($data) {
+		@datalines = split('\n',$data);
+		$i=1;
+		# print loggers with levels to screen, collecting them for later change
+		print "Use setDebugLevel to change the following entries from $logconfig (enter 0 to switch to common log.config and back):\n\n";
+		do {
+			print "$i: $datalines[$i-1]\n";
+			($toChange{$i},$levelToChange{$i}) = ($datalines[$i-1] =~ /(.+?) = (.+?)$/) if $datalines[$i-1] =~ /(.+?) = (.+?)$/;
+			($toChange{$i},$levelToChange{$i}) = ($datalines[$i-1] =~ /(.+?) = (.+?),.*$/) if $datalines[$i-1] =~ /(.+?) = (.+?),.*$/;
+			$i+=1;
+		} until($datalines[$i-1] eq "" or $datalines[$i-1] eq "\r");
+		# ask user for choices of logger to change
+		print "\nenter first logger (1..".($i-1).") or (#) to invert comments globally,\nthen level to change to ((F)ATAL, (E)RROR, (I)NFO, (D)EBUG, (T)RACE) or (#) to comment the logger in/out,\nand finally optional appenders ((S)CREEN, (M)AIL, (F)ILE) not for rootLogger!), only possible with changing the level.\n(no entry ends the program):";
+	} else {
+		print "no log.config found in $logconfig (enter 0 to switch to common log.config and back):\n\n";
+	}
 	my $choice= <STDIN>; chomp $choice;
-	last if !$choice; # break out of loop
+	last if $choice eq ""; # break out of loop
 	my ($loggerToChange,$level,$appenders) = ($choice =~ /^(.)(.)(.*?)$/);
 	my @appenders = split(//,lc($appenders)); $appenders = "";
 	for (@appenders) {
 		if ($appenders{$_}) {
 			$appenders.=", ".$appenders{$_};
 		} else {
-			print "invalid choice made for appender ($_)\npress enter";
+			print "invalid choice made for appender ($_), will be ignored.\npress enter";
 			<STDIN>;
 		}
 	}
-	# globally invert comments if the only input is #
-	if ($choice eq "#") {
-		$i=0;
-		do {
-			if ($datalines[$i] =~ /^#.+$/) {
-				$datalines[$i] =~ s/#//;
-				$data =~ s/^#$datalines[$i]$/$datalines[$i]/gm;
-			} else {
-				$data =~ s/^$datalines[$i]$/#$datalines[$i]/gm;
-			}
-			$i+=1;
-		} until($datalines[$i] eq "" or $datalines[$i] eq "\r");
-	} else {
-		print "you have to enter at least two choices or only # for inverting comments\n" if !$level and !$loggerToChange;
-		print "invalid choice made for level ($level), available:".join(" ",%levels)."\n" if !$levels{$level} and $toChange{$loggerToChange};
-		print "invalid choice made for logger to change ($loggerToChange)\n" if !$toChange{$loggerToChange} and $levels{$level};
-		# now change it in the log.config
-		if ($level eq "#") {
-			# toggle comments
-			if ($toChange{$loggerToChange} =~ /^#.+$/) {
-				$toChange{$loggerToChange} =~ s/#//;
-				$data =~ s/^#$toChange{$loggerToChange} = (.*?)$/$toChange{$loggerToChange} = $1/gm;
-			} else {
-				$data =~ s/^$toChange{$loggerToChange} = (.*?)$/#$toChange{$loggerToChange} = $1/gm;
-			}
-		} elsif ($toChange{$loggerToChange} and $levels{$level}) {
-			# change level and appenders (except for root logger)
-			if ($toChange{$loggerToChange} =~ /rootLogger/) {
-				$data =~ s/^$toChange{$loggerToChange} = $levelToChange{$loggerToChange}(.*?)$/$toChange{$loggerToChange} = $levels{$level}$1/gm;
-			} else {
-				$data =~ s/^$toChange{$loggerToChange} = $levelToChange{$loggerToChange}(.*?)$/$toChange{$loggerToChange} = $levels{$level}$appenders/gm;
-			}
+	# switch to common log.config and back
+	if ($choice eq "0") {
+		if ($logconfig ne "$ENV{EAI_WRAP_CONFIG_PATH}/log.config") {
+			$logconfig = "$ENV{EAI_WRAP_CONFIG_PATH}/log.config";
 		} else {
-			print "press enter";
-			<STDIN>;
-			next;
+			$logconfig = "$ENV{EAI_WRAP_CONFIG_PATH}/$env/log.config";
 		}
+		next;
 	}
-	# and write back
-	write_file($ENV{EAI_WRAP_CONFIG_PATH}."/log.config", $data);
+	if ($data) {
+		# globally invert comments if the only input is #
+		if ($choice eq "#") {
+			$i=0;
+			do {
+				if ($datalines[$i] =~ /^#.+$/) {
+					$datalines[$i] =~ s/#//;
+					$data =~ s/^#$datalines[$i]$/$datalines[$i]/gm;
+				} else {
+					$data =~ s/^$datalines[$i]$/#$datalines[$i]/gm;
+				}
+				$i+=1;
+			} until($datalines[$i] eq "" or $datalines[$i] eq "\r");
+		} else {
+			print "you have to enter at least two choices or only # for inverting comments\n" if !$level and !$loggerToChange;
+			print "invalid choice made for level ($level), available:".join(" ",%levels)."\n" if !$levels{$level} and $toChange{$loggerToChange};
+			print "invalid choice made for logger to change ($loggerToChange)\n" if !$toChange{$loggerToChange} and $levels{$level};
+			# now change it in the log.config
+			if ($level eq "#") {
+				# toggle comment for this logger
+				if ($toChange{$loggerToChange} =~ /^#.+$/) {
+					$toChange{$loggerToChange} =~ s/#//;
+					$data =~ s/^#$toChange{$loggerToChange} = (.*?)$/$toChange{$loggerToChange} = $1/gm;
+				} else {
+					$data =~ s/^$toChange{$loggerToChange} = (.*?)$/#$toChange{$loggerToChange} = $1/gm;
+				}
+			} elsif ($toChange{$loggerToChange} and $levels{$level}) {
+				# change level and appenders (except for root logger)
+				if ($toChange{$loggerToChange} =~ /rootLogger/) {
+					$data =~ s/^$toChange{$loggerToChange} = $levelToChange{$loggerToChange}(.*?)$/$toChange{$loggerToChange} = $levels{$level}$1/gm;
+				} else {
+					$data =~ s/^$toChange{$loggerToChange} = $levelToChange{$loggerToChange}(.*?)$/$toChange{$loggerToChange} = $levels{$level}$appenders/gm;
+				}
+			} else {
+				print "press enter";
+				<STDIN>;
+				next;
+			}
+		}
+		# and write back
+		write_file($logconfig, $data);
+	}
 }
 
 sub read_file {
 	my ($filename) = @_;
 
-	open my $in, '<:encoding(UTF-8)', $filename or die "Could not open '$filename' for reading $!";
+	open my $in, '<:encoding(UTF-8)', $filename or do {
+		print "Could not open '$filename' for reading $!\n";
+		return;
+	};
 	binmode($in);
 	local $/ = undef;
 	my $all = <$in>;
@@ -87,7 +117,10 @@ sub read_file {
 sub write_file {
 	my ($filename, $content) = @_;
 
-	open my $out, '>:encoding(UTF-8)', $filename or die "Could not open '$filename' for writing $!";
+	open my $out, '>:encoding(UTF-8)', $filename or do {
+		print "Could not open '$filename' for writing $!\n";
+		return;
+	};
 	binmode($out);
 	print $out $content;
 	close $out;
@@ -105,9 +138,9 @@ setDebugLevel.pl - small UI for setting debug levels and appenders for the vario
 
 =head1 DESCRIPTION
 
-Following screen (example) is offered when calling setDebugLevel:
+Following screen (example) is offered when calling setDebugLevel (and there is a log.config in $ENV{EAI_WRAP_CONFIG_PATH}/$execute{env}, see also L<EAI::Wrap::%execute|EAI::Wrap/%execute> and L<EAI::Wrap::DESCRIPTION|EAI::Wrap/DESCRIPTION>):
 
- Use setDebugLevel to change the following entries from $ENV{EAI_WRAP_CONFIG_PATH}/log.config:
+ Use setDebugLevel to change the following entries from $ENV{EAI_WRAP_CONFIG_PATH}/$execute{env}/log.config (enter 0 to switch to common log.config and back):
 
  1: log4perl.rootLogger = INFO, FILE, SCREEN, MAIL
  2: #log4perl.logger.main = DEBUG
