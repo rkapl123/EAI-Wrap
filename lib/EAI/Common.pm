@@ -1,4 +1,4 @@
-package EAI::Common 1.3;
+package EAI::Common 1.4;
 
 use strict; use feature 'unicode_strings'; use warnings; no warnings 'uninitialized';
 use Exporter qw(import); use EAI::DateUtil; use Data::Dumper qw(Dumper); use Getopt::Long qw(:config no_ignore_case); use Log::Log4perl qw(get_logger); use MIME::Lite (); use Scalar::Util qw(looks_like_number); use Module::Refresh ();
@@ -18,18 +18,18 @@ my %hashCheck = (
 		task => {},
 	},
 	config => { # parameter category for site global settings, defined in site.config and other associated configs loaded at INIT
-		checkLookup => {}, # ref to datastructure {"scriptname.pl" => {errmailaddress => "",errmailsubject => "",timeToCheck =>"", freqToCheck => "", logFileToCheck => "", logcheck => "",logRootPath =>""},...} used for logchecker, each entry of the hash lookup table defines a log to be checked, defining errmailaddress to receive error mails, errmailsubject, timeToCheck as earliest time to check for existence in log, freqToCheck as frequency of checks (daily/monthly/etc), logFileToCheck as the name of the logfile to check, logcheck as the regex to check in the logfile and logRootPath as the folder where the logfile is found. lookup key: $execute{scriptname} + $execute{addToScriptName}
+		checkLookup => {}, # ref to datastructure {"scriptname.pl + optional addToScriptName" => {errmailaddress => "",errmailsubject => "",timeToCheck =>"", freqToCheck => "", logFileToCheck => "", logcheck => "",logRootPath =>""},...} used for logchecker, each entry of the hash lookup table defines a log to be checked, defining errmailaddress to receive error mails, errmailsubject, timeToCheck as earliest time to check for existence in log, freqToCheck as frequency of checks (daily/monthly/etc), logFileToCheck as the name of the logfile to check, logcheck as the regex to check in the logfile and logRootPath as the folder where the logfile is found. lookup key: $execute{scriptname} + $execute{addToScriptName}
 		errmailaddress => "", # default mail address for central logcheck/errmail sending 
 		errmailsubject => "", # default mail subject for central logcheck/errmail sending 
 		executeOnInit => "", # code to be executed during INIT of EAI::Wrap to allow for assignment of config/execute parameters from commandline params BEFORE Logging!
 		folderEnvironmentMapping => {}, # ref to hash {Test => "Test", Dev => "Dev", "" => "Prod"}, mapping for $execute{envraw} to $execute{env}
 		fromaddress => "", # from address for central logcheck/errmail sending, also used as default sender address for sendGeneralMail
-		historyFolder => {}, # ref to hash {"scriptname.pl" => "folder"}, folders where downloaded files are historized, lookup key as in checkLookup, default in "" => "defaultfolder"
-		historyFolderUpload => {}, # ref to hash {"scriptname.pl" => "folder"}, folders where uploaded files are historized, lookup key as in checkLookup, default in "" => "defaultfolder"
+		historyFolder => {}, # ref to hash {"scriptname.pl + optional addToScriptName" => "folder"}, folders where downloaded files are historized, lookup key as in checkLookup, default in "" => "defaultfolder"
+		historyFolderUpload => {}, # ref to hash {"scriptname.pl + optional addToScriptName" => "folder"}, folders where uploaded files are historized, lookup key as in checkLookup, default in "" => "defaultfolder"
 		logCheckHoliday => "", # calendar for business days in central logcheck/errmail sending. builtin calendars are AT (Austria), TG (Target), UK (United Kingdom) and WE (for only weekends). Calendars can be added with EAI::DateUtil::addCalendar
 		logs_to_be_ignored_in_nonprod => '', # logs to be ignored in central logcheck/errmail sending
-		logRootPath => {}, # ref to hash {"scriptname.pl" => "folder"}, paths to log file root folders (environment is added to that if non production), lookup key as checkLookup, default in "" => "defaultfolder"
-		redoDir => {}, # ref to hash {"scriptname.pl" => "folder"}, folders where files for redo are contained, lookup key as checkLookup, default in "" => "defaultfolder"
+		logRootPath => {}, # ref to hash {"scriptname.pl + optional addToScriptName" => "folder"}, paths to log file root folders (environment is added to that if non production), lookup key as checkLookup, default in "" => "defaultfolder"
+		redoDir => {}, # ref to hash {"scriptname.pl + optional addToScriptName" => "folder"}, folders where files for redo are contained, lookup key as checkLookup, default in "" => "defaultfolder"
 		sensitive => {}, # hash lookup table ({"prefix" => {user=>"",pwd =>"",hostkey=>"",privkey =>""},...}) for sensitive access information in DB and FTP (lookup keys are set with DB{prefix} or FTP{prefix}), may also be placed outside of site.config; all sensitive keys can also be environment lookups, e.g. hostkey=>{Test => "", Prod => ""} to allow for environment specific setting
 		smtpServer => "", # smtp server for den (error) mail sending
 		smtpTimeout => 60, # timeout for smtp response
@@ -264,7 +264,7 @@ sub setupConfigMerge {
 		$config{$_} = {} if !defined($config{$_});
 		$opt{$_} = {} if !defined($opt{$_});
 	}
-	# check for unintended mergin/inheritance into sections of loads defined with underscore (inheritance prevention)
+	# check for unintended merging/inheritance into sections of loads defined with underscore (inheritance prevention)
 	for my $check (0..$#loads) {
 		for my $hashName (@allConfig) {
 			if (defined($loads[$check]{$hashName."_"})) {
@@ -321,7 +321,9 @@ sub getOptions {
 		# then option overrides for each load
 		 %optiondefs = (%optiondefs, "load${i}DB=s%" => \$optload[$i]{DB}, "load${i}FTP=s%" => \$optload[$i]{FTP}, "load${i}File=s%" => \$optload[$i]{File},"load${i}process=s%" => \$optload[$i]{process});
 	}
+	my @orig_ARGV = @ARGV;
 	Getopt::Long::GetOptions(%optiondefs);
+	@ARGV = @orig_ARGV; # restore @ARGV in case the calling script does its own option processing
 	# now correct strings to numeric where needed, also checking validity
 	my $errStr;
 	for my $hashName (@allConfig) {
@@ -491,8 +493,8 @@ sub setupLogging {
 		$noLogFolderErr = "can't log to logfolder $logFolder (set specially for script with \$config{logRootPath}{".$execute{scriptname}.$execute{addToScriptName}."} or default with \$config{logRootPath}{\"\"}), folder doesn't exist. Setting to $execute{homedir}";
 		$logFolder = $execute{homedir};
 	}
-	$LogFPath = $logFolder."/".$execute{scriptname}.".log";
-	$LogFPathDayBefore = $logFolder."/".get_curdate().".". $execute{scriptname}.".log"; # if mail is watched next day, show the rolled file here
+	$LogFPath = $logFolder."/".$execute{scriptname}.$execute{addToScriptName}.".log";
+	$LogFPathDayBefore = $logFolder."/".get_curdate().".". $execute{scriptname}.$execute{addToScriptName}.".log"; # if mail is watched next day, show the rolled file here
 	$logConfig = $EAI_WRAP_CONFIG_PATH."/".$execute{env}."/log.config"; # environment dependent log config, Prod is either in EAI_WRAP_CONFIG_PATH/.$execute{env} or EAI_WRAP_CONFIG_PATH
 	$logConfig = $EAI_WRAP_CONFIG_PATH."/log.config" if (! -e $logConfig); # fall back to main config log.config
 	die "log.config neither in $logConfig nor in ".$EAI_WRAP_CONFIG_PATH."/log.config" if (! -e $logConfig);

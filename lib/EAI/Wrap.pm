@@ -1,4 +1,4 @@
-package EAI::Wrap 1.3;
+package EAI::Wrap 1.4;
 
 use strict; use feature 'unicode_strings'; use warnings;
 use Exporter qw(import); use Data::Dumper qw(Dumper); use File::Copy qw(copy move); use Cwd qw(chdir); use Archive::Extract ();
@@ -237,10 +237,7 @@ sub getFilesFromFTP ($) {
 			return redoFiles($arg);
 		} else {
 			if ($File->{filename}) {
-				if (!EAI::FTP::fetchFiles ($FTP,{firstRunSuccess=>$execute{firstRunSuccess},homedir=>$execute{homedir},fileToRetrieve=>$File->{filename},fileToRetrieveOptional=>$File->{optional},retrievedFiles=>$execute{retrievedFiles}})) {
-					$logger->error("error in fetching file from FTP") if !$execute{retryBecauseOfError};
-					return 0;
-				}
+				return EAI::FTP::fetchFiles($FTP,{firstRunSuccess=>$execute{firstRunSuccess},homedir=>$execute{homedir},fileToRetrieve=>$File->{filename},fileToRetrieveOptional=>$File->{optional},retrievedFiles=>$execute{retrievedFiles}});
 			} else {
 				$logger->error("no \$File->{filename} given, can't get it from FTP");
 				return 0;
@@ -390,13 +387,7 @@ sub readFileData ($) {
 	} else {
 		$readSuccess = EAI::File::readText($File, \@{$process->{data}}, $process->{filenames}, $redoDir);
 	}
-	# error when reading files with readFile/readExcel/readXML
-	if (!$readSuccess) {
-		my @filesdone = @{$process->{filenames}} if $process->{filenames};
-		$logger->error("error reading one of file(s) @filesdone") if (!$File->{optional});
-		$logger->warn("error reading one of file(s) @filesdone, but ignored as \$File{emptyOK} = 1!") if ($File->{emptyOK});
-	}
-	return $readSuccess;
+	return $readSuccess; # return error when reading files with readFile/readExcel/readXML
 }
 
 # store data into Database
@@ -406,7 +397,7 @@ sub dumpDataIntoDB ($) {
 	my ($DB,$File,$process) = EAI::Common::extractConfigs("storing data to DB",$arg,"DB","File","process");
 	return 1 if $execute{retryBecauseOfError} and !$process->{hadErrors};
 	our $hadDBErrors = 0;
-	if ($process->{data}) { # data supplied?
+	if ($process->{data} and @{$process->{data}}) { # data supplied?
 		if ($DB->{noDumpIntoDB}) {
 			$logger->info("skip dumping of ".$File->{filename}." into DB");
 		} else {
@@ -485,9 +476,9 @@ sub dumpDataIntoDB ($) {
 				$process->{hadErrors} = 1;
 			}
 		}
-	} else {# if ($process->{data}) .. in case there is no data and an empty file is OK no error will be thrown in readFile/readExcel, but any Import should not be done...
+	} else {
 		if ($File->{emptyOK}) {
-			$logger->warn("received empty file, will be ignored as \$File{emptyOK}=1");
+			$logger->warn("received empty data, will be ignored as \$File{emptyOK}=1");
 		} else {
 			my @filesdone = @{$process->{filenames}} if $process->{filenames};
 			$logger->error("error as none of the following files didn't contain data: @filesdone !");
@@ -1166,7 +1157,7 @@ parameter category for site global settings, defined in site.config and other as
 
 =item checkLookup
 
-ref to datastructure {"scriptname.pl" => {errmailaddress => "",errmailsubject => "",timeToCheck =>"", freqToCheck => "", logFileToCheck => "", logcheck => "",logRootPath =>""},...} used for logchecker, each entry of the hash lookup table defines a log to be checked, defining errmailaddress to receive error mails, errmailsubject, timeToCheck as earliest time to check for existence in log, freqToCheck as frequency of checks (daily/monthly/etc), logFileToCheck as the name of the logfile to check, logcheck as the regex to check in the logfile and logRootPath as the folder where the logfile is found. lookup key: $execute{scriptname} + $execute{addToScriptName}
+ref to datastructure {"scriptname.pl + optional addToScriptName" => {errmailaddress => "",errmailsubject => "",timeToCheck =>"", freqToCheck => "", logFileToCheck => "", logcheck => "",logRootPath =>""},...} used for logchecker, each entry of the hash lookup table defines a log to be checked, defining errmailaddress to receive error mails, errmailsubject, timeToCheck as earliest time to check for existence in log, freqToCheck as frequency of checks (daily/monthly/etc), logFileToCheck as the name of the logfile to check, logcheck as the regex to check in the logfile and logRootPath as the folder where the logfile is found. lookup key: $execute{scriptname} + $execute{addToScriptName}
 
 =item errmailaddress
 
@@ -1190,11 +1181,11 @@ from address for central logcheck/errmail sending, also used as default sender a
 
 =item historyFolder
 
-ref to hash {"scriptname.pl" => "folder"}, folders where downloaded files are historized, lookup key as in checkLookup, default in "" => "defaultfolder"
+ref to hash {"scriptname.pl + optional addToScriptName" => "folder"}, folders where downloaded files are historized, lookup key as in checkLookup, default in "" => "defaultfolder"
 
 =item historyFolderUpload
 
-ref to hash {"scriptname.pl" => "folder"}, folders where uploaded files are historized, lookup key as in checkLookup, default in "" => "defaultfolder"
+ref to hash {"scriptname.pl + optional addToScriptName" => "folder"}, folders where uploaded files are historized, lookup key as in checkLookup, default in "" => "defaultfolder"
 
 =item logCheckHoliday
 
@@ -1206,11 +1197,11 @@ logs to be ignored in central logcheck/errmail sending
 
 =item logRootPath
 
-ref to hash {"scriptname.pl" => "folder"}, paths to log file root folders (environment is added to that if non production), lookup key as checkLookup, default in "" => "defaultfolder"
+ref to hash {"scriptname.pl + optional addToScriptName" => "folder"}, paths to log file root folders (environment is added to that if non production), lookup key as checkLookup, default in "" => "defaultfolder"
 
 =item redoDir
 
-ref to hash {"scriptname.pl" => "folder"}, folders where files for redo are contained, lookup key as checkLookup, default in "" => "defaultfolder"
+ref to hash {"scriptname.pl + optional addToScriptName" => "folder"}, folders where files for redo are contained, lookup key as checkLookup, default in "" => "defaultfolder"
 
 =item sensitive
 

@@ -1,4 +1,4 @@
-package EAI::FTP 1.3;
+package EAI::FTP 1.4;
 
 use strict; use feature 'unicode_strings'; use warnings;
 use Exporter qw(import); use Net::SFTP::Foreign (); use Net::SFTP::Foreign::Constants qw( SFTP_ERR_LOCAL_UTIME_FAILED ); use Net::FTP (); use Text::Glob qw(match_glob);
@@ -174,7 +174,8 @@ sub removeFilesOlderX ($) {
 sub fetchFiles ($$) {
 	my ($FTP,$param) = @_;
 	my $logger = get_logger();
-	my $suppressGetError = $param->{firstRunSuccess};
+	 # ignore errors for a file that was either removed with the first successful run or is optional
+	my $suppressGetError = (($FTP->{fileToRemove} && $param->{firstRunSuccess}) || $param->{fileToRetrieveOptional});
 	my $queue_size = $FTP->{queue_size};
 	$queue_size = 1 if !$queue_size; # queue_size bigger 1 causes often connection issues
 	if (defined $ftp) {
@@ -195,8 +196,8 @@ sub fetchFiles ($$) {
 				for (my $i = 0; $i < @multipleFiles; $i++) {
 					$logger->debug("fetching file ".$multipleRemoteFiles[$i]);
 					_get($multipleRemoteFiles[$i], $localPath.$multipleFiles[$i], $queue_size) or do {
-						unless (_error() == SFTP_ERR_LOCAL_UTIME_FAILED || $suppressGetError) {
-							$logger->error("error: can't get remote-file ".$multipleRemoteFiles[$i]." from glob $remoteFile, reason: "._error().", status: "._status());
+						unless (_error() == SFTP_ERR_LOCAL_UTIME_FAILED) {
+							$logger->error("error: can't get remote-file ".$multipleRemoteFiles[$i]." from glob $remoteFile, reason: "._error().", status: "._status()) unless $suppressGetError;
 							@{$param->{retrievedFiles}} = ();
 							return 0;
 						}
@@ -209,13 +210,15 @@ sub fetchFiles ($$) {
 				$logger->debug("get file $remoteFile");
 				@{$param->{retrievedFiles}} = ($param->{fileToRetrieve});
 				_get($remoteFile, $localFile, $queue_size) or do { 
-					$logger->debug("ftp_get returned error: "._error().", status:"._status());
-					if (!$param->{fileToRetrieveOptional} and !$FTP->{fileToRemove}) { # ignore errors for a file that was either removed or is optional
-						unless (_error() == SFTP_ERR_LOCAL_UTIME_FAILED || $suppressGetError) {
+					unless (_error() == SFTP_ERR_LOCAL_UTIME_FAILED) {
+						if ($suppressGetError) {
+							no warnings 'uninitialized';
+							$logger->warn("can't get remote-file $remoteFile, reason: "._error().", status: "._status()." suppressed because of \$param{firstRunSuccess}(".$param->{firstRunSuccess}.") or \$param{fileToRetrieveOptional}(".$param->{fileToRetrieveOptional}.")");
+						} else {
 							$logger->error("can't get remote-file $remoteFile, reason: "._error().", status: "._status());
-							@{$param->{retrievedFiles}} = ();
-							return 0;
 						}
+						@{$param->{retrievedFiles}} = ();
+						return 0;
 					}
 				};
 				$logger->info("fetched file $remoteFile to $localFile");

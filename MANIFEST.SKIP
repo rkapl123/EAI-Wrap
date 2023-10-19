@@ -8,6 +8,7 @@ blib
 Test
 putty
 config/Test
+config/t
 fetchParamDescriptionsUpdateVersion.pl
 compare.WinMerge
 EAI-Wrap-0.1

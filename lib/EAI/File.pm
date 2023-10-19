@@ -1,4 +1,4 @@
-package EAI::File 1.3;
+package EAI::File 1.4;
 
 use strict; use feature 'unicode_strings'; use warnings; no warnings 'uninitialized';
 use Exporter qw(import);use Text::CSV();use Data::XLSX::Parser();use Spreadsheet::ParseExcel();use Spreadsheet::WriteExcel();use Excel::Writer::XLSX();use Data::Dumper qw(Dumper);use XML::LibXML();use XML::LibXML::Debugging();
@@ -71,6 +71,7 @@ sub readText ($$$;$) {
 			sep_char  => $sep,
 			eol => ($File->{format_eol} ? $File->{format_eol} : $/),
 		});
+
 		# local context for special line record separator
 		{
 			my $newRecSep;
@@ -136,13 +137,17 @@ LINE:
 			}
 		}
 		close FILE;
-		if (!$data and !$File->{emptyOK}) {
-			$logger->error("no data retrieved from file: $filename");
-			return 0;
-		}
 	}
-	$logger->trace("amount of rows:".scalar(@{$data})) if $logger->is_trace and $data;
+	if (!$data or !@{$data}) {
+		if ($File->{emptyOK}) {
+			$logger->warn("no data retrieved from file(s): @filenames, will be ignored because \$File{emptyOK}");
+		} else {
+			$logger->error("no data retrieved from file(s): @filenames");
+		}
+		return 0;
+	}
 	if ($logger->is_trace) {
+		$logger->trace("amount of rows:".scalar(@{$data})) if $data;
 		$Data::Dumper::Deepcopy = 1;
 		$logger->trace(Dumper($data));
 		$Data::Dumper::Deepcopy = 0;
