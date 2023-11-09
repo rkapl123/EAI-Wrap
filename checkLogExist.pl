@@ -1,11 +1,10 @@
-use strict;
-use EAI::Wrap;
+use strict; use EAI::Wrap;
 
 my $curDate = get_curdate();
 my $curDateDash = get_curdate_gen("Y/M/D");
 my $curhyphenDate = get_curdate_gen("Y-M-D");
 my $curdotDate = get_curdate_dot();
-my $curTime = get_curtime();
+my $curTime = get_curtime_HHMM();
 
 setupConfigMerge();
 
@@ -19,11 +18,17 @@ foreach my $job (keys %{$config{checkLookup}}) {
 	$freqToCheck = "B" if !$freqToCheck;
 	my $timeToCheck = $config{checkLookup}{$job}{timeToCheck}; # earliest time to check log start entry
 	my $logFileToCheck = $config{checkLookup}{$job}{logFileToCheck}; # Logfile to be searched
-	# either take specific logpath set up in checkLookup or the default one from EAI::Wrap
-	my $logFolder = ($config{checkLookup}{$job}{logRootPath} ? $config{checkLookup}{$job}{logRootPath}.($execute{envraw} ? "/".$execute{envraw} : "") : $execute{logRootPath})."/"; # don't need additional environment for default logRootPath as this is already set by setupLogging (done in INIT of $execute{logRootPath} of EAI::Wrap)
+	my $logRootPath = ($config{checkLookup}{$job}{logRootPath} ne "" ? $config{checkLookup}{$job}{logRootPath} : $config{logRootPath}{""}); # default log root path
+	my $prodEnvironmentInSeparatePath = ($config{checkLookup}{$job}{prodEnvironmentInSeparatePath} ne "" ? $config{checkLookup}{$job}{prodEnvironmentInSeparatePath} : $config{prodEnvironmentInSeparatePath});
+	# amend logfile path with environment, depending on prodEnvironmentInSeparatePath:
+	if ($prodEnvironmentInSeparatePath) {
+		$logFileToCheck = $logRootPath.'/'.$execute{env}.'/'.$logFileToCheck;
+	} else {
+		$logFileToCheck = $logRootPath.($execute{envraw} ? '/'.$execute{envraw} : "").'/'.$logFileToCheck;
+	}
 	my $logcheck = $config{checkLookup}{$job}{logcheck}; # Logcheck (regex)
 	
-	$logger->info("preparing logcheck for $job, freqToCheck:$freqToCheck, timeToCheck:$timeToCheck, logFileToCheck:$logFolder$logFileToCheck, logcheck regex:/$logcheck/");
+	$logger->info("preparing logcheck for $job, freqToCheck:$freqToCheck, timeToCheck:$timeToCheck, logFileToCheck:$logFileToCheck, logcheck regex:/$logcheck/");
 	if ($freqToCheck eq "B" and (is_weekend($curDate) || is_holiday($config{logCheckHoliday},$curDate))) {
 		$logger->info("IGNORING logcheck for $job as freqToCheck eq B and is_weekend($curDate)=".is_weekend($curDate)." || is_holiday(".$config{logCheckHoliday}.",$curDate)=".is_holiday($config{logCheckHoliday},$curDate));
 		next LOGCHECK;
@@ -55,14 +60,13 @@ foreach my $job (keys %{$config{checkLookup}}) {
 	# for non prod environments
 	if ($execute{envraw}) {
 		# ignore some jobs in non prod environments
-		my $search_string = $config{logs_to_be_ignored_in_nonprod};
-		if ($job =~ m/\Q$search_string/) {
-			$logger->info("IGNORING logcheck for $job as environment not Production and non production logs are to be ignored:".$config{logs_to_be_ignored_in_nonprod});
+		if ($config{logs_to_be_ignored_in_nonprod} ne "" and $job =~ $config{logs_to_be_ignored_in_nonprod}) {
+			$logger->info("IGNORING logcheck for $job as environment not Production and non production logs are to be ignored: ".$config{logs_to_be_ignored_in_nonprod});
 			next LOGCHECK;
 		}
 	}
 	my $infos = " is missing for job $job:\n";
-	if (open (LOGFILE, "<$logFolder$logFileToCheck")) {
+	if (open (LOGFILE, "<$logFileToCheck")) {
 		# check log file for log check pattern, assumption tab separated!
 		while (<LOGFILE>){
 			my $wholeLine = $_;
@@ -74,19 +78,20 @@ foreach my $job (keys %{$config{checkLookup}}) {
 			}
 		}
 		$logger->info("$logcheck wasn't found in $logFileToCheck");
-		$infos = "The log starting entry".$infos;
+		$infos = "The log starting entry in logfile $logFileToCheck".$infos;
 	} else {
-		$infos = "The logfile in $logFolder$logFileToCheck".$infos;
+		$infos = "The logfile $logFileToCheck".$infos;
 	}
 	close LOGFILE;
 	# send mail for not found log entries
 	# insert $curDate before file name with a dot
 	my $lastLogFile = $logFileToCheck;
-	$lastLogFile =~ s/(\\.*\\)(.*?)/\1$curDate\.\2/;
-	$infos = $infos."\njob: <$job>, frequency: ".$freqToCheck.", time to check: ".$timeToCheck.", log in file ".$logFileToCheck." resp. ".$lastLogFile;
+	$lastLogFile =~ s/^(.+?[\\\/])([^\\\/]+?)$/$1$curDate\.$2/;
+	$infos = $infos."\njob: <$job>, frequency: ".$freqToCheck.", time to check: ".$timeToCheck.", log in file file:///".$logFileToCheck." resp. file:///".$lastLogFile;
 	my $mailsendTo = ($execute{envraw} ? $config{testerrmailaddress} : $config{checkLookup}{$job}{errmailaddress});
 	$logger->info("failed logcheck for '".$job."', sending mail to: '".$mailsendTo);
-	EAI::Common::sendGeneralMail("", $mailsendTo,"","",($execute{envraw} ? $execute{envraw}.": " : "").'job starting problem','TEXT',$infos);
+	EAI::Common::sendGeneralMail("", $mailsendTo,"","","Starting problem detected for $job",$infos,'text/plain');
+	# sendGeneralMail($From, $To, $Cc, $Bcc, $Subject, $Data, $Type, $Encoding, $AttachType, $AttachFile)
 }
 __END__
 =head1 NAME
@@ -124,15 +129,15 @@ The key consists of the scriptname + any additional defined interactive options,
 
 =item errmailaddress 
 
-where should the mail sent to in case of non-existence or an error.
+where should the mail be sent to in case of non-existence of logfile/logline or an error in the script.
 
 =item errmailsubject
 
-subject-line for error mail, only used for error mail sending in the tasks itself.
+subject-line for error mail, only used for error mail sending in the task scripts themselves.
 
 =item timeToCheck
 
-all checks earlier than this are ignored
+all checks earlier than this are ignored, given in format HHMM.
 
 =item freqToCheck
 
@@ -140,7 +145,7 @@ ignore log check except on: ML..Monthend, D..every day, B..Business days, M1..Mo
 
 =item logFileToCheck
 
-Where (which logfile) should the job have written into ? this logfile is expected either in the logRootPath configured in site.config or in logRootPath configured for this locgceck entry (see below).
+Where (which logfile) should the job have written into ? this logfile is expected either in the logRootPath configured in site.config or in logRootPath configured for this locgcheck entry (see below).
 
 =item logcheck
 

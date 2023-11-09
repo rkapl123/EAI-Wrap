@@ -11,7 +11,7 @@ WriteMakefile(
 	VERSION_FROM  => 'lib/EAI/Wrap.pm',
 	PREREQ_PM     => {
 		'Archive::Extract' => 0,
-		'Data::XLSX::Parser' => 0,
+		'Data::XLSX::Parser' => 0.20,
 		'DBD::ODBC' => 0,
 		'DBI' => 0,
 		'Excel::Writer::XLSX' => 0,

@@ -1,4 +1,4 @@
-package EAI::Wrap 1.5;
+package EAI::Wrap 1.6;
 
 use strict; use feature 'unicode_strings'; use warnings;
 use Exporter qw(import); use Data::Dumper qw(Dumper); use File::Copy qw(copy move); use Cwd qw(chdir); use Archive::Extract ();
@@ -189,6 +189,7 @@ sub getLocalFiles ($) {
 	my $logger = get_logger();
 	my ($File,$process) = EAI::Common::extractConfigs("Getting local files",$arg,"File","process");
 	return if $execute{retryBecauseOfError} and !$process->{hadErrors};
+	@{$execute{retrievedFiles}} = (); # reset last retrieved
 	if ($File->{localFilesystemPath}) {
 		my $localFilesystemPath = $File->{localFilesystemPath};
 		$localFilesystemPath.="/" if $localFilesystemPath !~ /^.*\/$/;
@@ -1198,11 +1199,15 @@ calendar for business days in central logcheck/errmail sending. builtin calendar
 
 =item logs_to_be_ignored_in_nonprod
 
-logs to be ignored in central logcheck/errmail sending
+regular expression to specify logs to be ignored in central logcheck/errmail sending
 
 =item logRootPath
 
 ref to hash {"scriptname.pl + optional addToScriptName" => "folder"}, paths to log file root folders (environment is added to that if non production), lookup key as checkLookup, default in "" => "defaultfolder"
+
+=item prodEnvironmentInSeparatePath
+
+set to 1 if the production scripts/logs etc. are in a separate Path defined by folderEnvironmentMapping (prod=root/Prod, test=root/Test, etc.), set to 0 if the production scripts/logs are in the root folder and all other environments are below that folder (prod=root, test=root/Test, etc.)
 
 =item redoDir
 
@@ -1242,11 +1247,11 @@ this can be set to be added to the scriptname for config{checkLookup} keys, e.g.
 
 =item env
 
-Prod, Test, Dev, whatever
+Prod, Test, Dev, whatever is defined as the lookup value in folderEnvironmentMapping. homedir as fetched from the File::basename::dirname of the executing script using /^.*[\\\/](.*?)$/ is used as the key for looking up this value.
 
 =item envraw
 
-Production has a special significance here as being the empty string (used for paths). Otherwise like env.
+Production has a special significance here as being an empty string. Otherwise like env.
 
 =item errmailaddress
 
@@ -1582,7 +1587,7 @@ for text writing, hash with field number => padding to be applied for fixed leng
 
 =item format_poslen
 
-array of positions/length definitions: e.g. "poslen => [(0,3),(3,3)]" for fixed length format text file parsing
+array of array defining positions and lengths [[pos1,len1],[pos2,len2]...[posN,lenN]] of data in fixed length format text files (if format_sep == "fix")
 
 =item format_quotedcsv
 

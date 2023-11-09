@@ -28,3 +28,5 @@
 	- amended logfile naming to same principles as in config lookup keys (scriptname + addToScriptName suffix), restore @ARGV after commandline parsing to allow for own commandline parsing, improved suppressing error messages in EAI::FTP::fetchFiles, improved error handling for empty files.
 1.5  Thu Oct 26 13:00:00 2023
 	- error checking for EAI::Wrap::openDBConn parameters, added possibility to have enumerated differentiation of log checks, added format_autoheader to automatically created header information from source files, improved arg checking in EAI::DB::readFromDBHash and doInDB, improved (empty) arg checking in EAI::DateUtil
+1.6  Thu Nov 09 23:00:00 2023
+	- refactoring in EAI::File, fix access to line and other data in fieldCode and lineCode custom parsing hooks, added prodEnvironmentInSeparatePath for checkLogExist, fixed resetting retrievedFiles in getLocalFiles, changed logs_to_be_ignored_in_nonprod to regex, fixed curTime check and many other things in checkLogExist.

@@ -1,4 +1,4 @@
-package EAI::Common 1.5;
+package EAI::Common 1.6;
 
 use strict; use feature 'unicode_strings'; use warnings; no warnings 'uninitialized';
 use Exporter qw(import); use EAI::DateUtil; use Data::Dumper qw(Dumper); use Getopt::Long qw(:config no_ignore_case); use Log::Log4perl qw(get_logger); use MIME::Lite (); use Scalar::Util qw(looks_like_number); use Module::Refresh ();
@@ -27,8 +27,9 @@ my %hashCheck = (
 		historyFolder => {}, # ref to hash {"scriptname.pl + optional addToScriptName" => "folder"}, folders where downloaded files are historized, lookup key as in checkLookup, default in "" => "defaultfolder"
 		historyFolderUpload => {}, # ref to hash {"scriptname.pl + optional addToScriptName" => "folder"}, folders where uploaded files are historized, lookup key as in checkLookup, default in "" => "defaultfolder"
 		logCheckHoliday => "", # calendar for business days in central logcheck/errmail sending. builtin calendars are AT (Austria), TG (Target), UK (United Kingdom) and WE (for only weekends). Calendars can be added with EAI::DateUtil::addCalendar
-		logs_to_be_ignored_in_nonprod => '', # logs to be ignored in central logcheck/errmail sending
+		logs_to_be_ignored_in_nonprod => qr//, # regular expression to specify logs to be ignored in central logcheck/errmail sending
 		logRootPath => {}, # ref to hash {"scriptname.pl + optional addToScriptName" => "folder"}, paths to log file root folders (environment is added to that if non production), lookup key as checkLookup, default in "" => "defaultfolder"
+		prodEnvironmentInSeparatePath => 1, # set to 1 if the production scripts/logs etc. are in a separate Path defined by folderEnvironmentMapping (prod=root/Prod, test=root/Test, etc.), set to 0 if the production scripts/logs are in the root folder and all other environments are below that folder (prod=root, test=root/Test, etc.)
 		redoDir => {}, # ref to hash {"scriptname.pl + optional addToScriptName" => "folder"}, folders where files for redo are contained, lookup key as checkLookup, default in "" => "defaultfolder"
 		sensitive => {}, # hash lookup table ({"prefix" => {user=>"",pwd =>"",hostkey=>"",privkey =>""},...}) for sensitive access information in DB and FTP (lookup keys are set with DB{prefix} or FTP{prefix}), may also be placed outside of site.config; all sensitive keys can also be environment lookups, e.g. hostkey=>{Test => "", Prod => ""} to allow for environment specific setting
 		smtpServer => "", # smtp server for den (error) mail sending
@@ -43,8 +44,8 @@ my %hashCheck = (
 	execute => { # hash of parameters for current task execution which is not set by the user but can be used to set other parameters and control the flow
 		alreadyMovedOrDeleted => {}, # hash for checking the already moved or deleted files, to avoid moving/deleting them again at cleanup
 		addToScriptName => "", # this can be set to be added to the scriptname for config{checkLookup} keys, e.g. some passed parameter.
-		env => "", # Prod, Test, Dev, whatever
-		envraw => "", # Production has a special significance here as being the empty string (used for paths). Otherwise like env.
+		env => "", # Prod, Test, Dev, whatever is defined as the lookup value in folderEnvironmentMapping. homedir as fetched from the File::basename::dirname of the executing script using /^.*[\\\/](.*?)$/ is used as the key for looking up this value.
+		envraw => "", # Production has a special significance here as being an empty string. Otherwise like env.
 		errmailaddress => "", # for central logcheck/errmail sending in current process
 		errmailsubject => "", # for central logcheck/errmail sending in current process
 		failcount => 1, # for counting failures in processing to switch to longer wait period or finish altogether
@@ -134,7 +135,7 @@ my %hashCheck = (
 		format_fix => 1, # for text writing, specify whether fixed length format should be used (requires format_padding)
 		format_namespaces => {}, # for XML reading, hash with alias => namespace association entries
 		format_padding => {}, # for text writing, hash with field number => padding to be applied for fixed length format
-		format_poslen => [], # array of positions/length definitions: e.g. "poslen => [(0,3),(3,3)]" for fixed length format text file parsing
+		format_poslen => [], # array of array defining positions and lengths [[pos1,len1],[pos2,len2]...[posN,lenN]] of data in fixed length format text files (if format_sep == "fix")
 		format_quotedcsv => 1, # special parsing/writing of quoted csv data using Text::CSV
 		format_sep => "", # separator string for csv format, regex for split for other separated formats. Also needed for splitting up format_header and format_targetheader (Excel and XML-formats use tab as default separator here).
 		format_sepHead => "", # special separator for header row in write text, overrides format_sep
