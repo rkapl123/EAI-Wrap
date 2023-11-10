@@ -4,7 +4,7 @@ my $curDate = get_curdate();
 my $curDateDash = get_curdate_gen("Y/M/D");
 my $curhyphenDate = get_curdate_gen("Y-M-D");
 my $curdotDate = get_curdate_dot();
-my $curTime = get_curtime_HHMM();
+my $curTime = "00".get_curtime_HHMM()."00";
 
 setupConfigMerge();
 
@@ -14,6 +14,8 @@ $logger->info(">>>>>>> starting logcheck, curDate: $curDate, curDateDash: $curDa
 LOGCHECK:
 foreach my $job (keys %{$config{checkLookup}}) {
 	next LOGCHECK if $job eq "checkLogExist.pl"; # don't check our own logfile, configuration only for own error emailing (e.g from setupConfigMerge)
+	# delayed checking for environments/specific jobs, either general $config{checkLogExistDelay}{$execute{env}} or job specific $config{checkLookup}{$job}{checkLogExistDelay}{$execute{env}}:
+	my $checkLogExistDelay = (defined($config{checkLookup}{$job}{checkLogExistDelay}{$execute{env}}) ? $config{checkLookup}{$job}{checkLogExistDelay}{$execute{env}} : (defined($config{checkLogExistDelay}{$execute{env}}) ? $config{checkLogExistDelay}{$execute{env}} : 0));
 	my $freqToCheck = $config{checkLookup}{$job}{freqToCheck}; # frequency to check log file (business-daily, daily, monthly, etc.), default (if not given): every business day
 	$freqToCheck = "B" if !$freqToCheck;
 	my $timeToCheck = $config{checkLookup}{$job}{timeToCheck}; # earliest time to check log start entry
@@ -30,38 +32,39 @@ foreach my $job (keys %{$config{checkLookup}}) {
 	
 	$logger->info("preparing logcheck for $job, freqToCheck:$freqToCheck, timeToCheck:$timeToCheck, logFileToCheck:$logFileToCheck, logcheck regex:/$logcheck/");
 	if ($freqToCheck eq "B" and (is_weekend($curDate) || is_holiday($config{logCheckHoliday},$curDate))) {
-		$logger->info("IGNORING logcheck for $job as freqToCheck eq B and is_weekend($curDate)=".is_weekend($curDate)." || is_holiday(".$config{logCheckHoliday}.",$curDate)=".is_holiday($config{logCheckHoliday},$curDate));
+		$logger->info("IGNORING logcheck as freqToCheck eq B and is_weekend($curDate)=".is_weekend($curDate)." || is_holiday(".$config{logCheckHoliday}.",$curDate)=".is_holiday($config{logCheckHoliday},$curDate));
 		next LOGCHECK;
 	}
 	if ($freqToCheck eq "M1" and $curDate !~ /\d{4}\d{2}01/) {
-		$logger->info("IGNORING logcheck for $job as freqToCheck eq M1 and curDate ($curDate) !~ /\d{4}\d{2}01/");
+		$logger->info("IGNORING logcheck as freqToCheck eq M1 and curDate ($curDate) !~ /\d{4}\d{2}01/");
 		next LOGCHECK;
 	}
 	if ($freqToCheck eq "Q" and $curDate !~ /\d{4}0102/ and $curDate !~ /\d{4}0401/ and $curDate !~ /\d{4}0701/ and $curDate !~ /\d{4}1001/) {
-		$logger->info("IGNORING logcheck for $job as freqToCheck eq Q and curDate ($curDate) !~ /\d{4}0102/ and curDate !~ /\d{4}0401/ and curDate !~ /\d{4}0701/ and curDate !~ /\d{4}1001/");
+		$logger->info("IGNORING logcheck as freqToCheck eq Q and curDate ($curDate) !~ /\d{4}0102/ and curDate !~ /\d{4}0401/ and curDate !~ /\d{4}0701/ and curDate !~ /\d{4}1001/");
 		next LOGCHECK;
 	}
 	if ($freqToCheck eq "ML" and !is_last_day_of_month($curDate)) {
-		$logger->info("IGNORING logcheck for $job as freqToCheck eq ML and !is_last_day_of_month($curDate)=".is_last_day_of_month($curDate));
+		$logger->info("IGNORING logcheck as freqToCheck eq ML and !is_last_day_of_month($curDate)=".is_last_day_of_month($curDate));
 		next LOGCHECK;
 	}
 	if (substr($freqToCheck,0,1) eq "W" and !(weekday($curDate) eq substr($freqToCheck,1,1))) {
-		$logger->info("IGNORING logcheck for $job as substr($freqToCheck,0,1) eq W and !(weekday($curDate) (".weekday($curDate).") eq substr($freqToCheck,1,1))");
+		$logger->info("IGNORING logcheck as substr($freqToCheck,0,1) eq W and !(weekday($curDate) (".weekday($curDate).") eq substr($freqToCheck,1,1))");
 		next LOGCHECK;
 	}
 	if (substr($freqToCheck,0,2) eq "MW" and !(first_weekYYYYMMDD($curDate,substr($freqToCheck,2,1)))) {
-		$logger->info("IGNORING logcheck for $job as substr($freqToCheck,0,2) eq MW and !(first_weekYYYYMMDD($curDate,substr($freqToCheck,2,1)))");
+		$logger->info("IGNORING logcheck as substr($freqToCheck,0,2) eq MW and !(first_weekYYYYMMDD($curDate,substr($freqToCheck,2,1)))");
 		next LOGCHECK;
 	}
-	if ($timeToCheck gt $curTime) {
-		$logger->info("IGNORING logcheck for $job as timeToCheck gt ".$curTime);
+	my $checkTime = formatTime(make_time($timeToCheck."00",60*$checkLogExistDelay),"%02d%02d%02d%02d");
+	if ($checkTime gt $curTime) {
+		$logger->info("IGNORING logcheck as timeToCheck ($timeToCheck) + checkLogExistDelay ($checkLogExistDelay) minutes (totals to $checkTime) is greater than curTime ($curTime)");
 		next LOGCHECK;
 	}
 	# for non prod environments
 	if ($execute{envraw}) {
 		# ignore some jobs in non prod environments
 		if ($config{logs_to_be_ignored_in_nonprod} ne "" and $job =~ $config{logs_to_be_ignored_in_nonprod}) {
-			$logger->info("IGNORING logcheck for $job as environment not Production and non production logs are to be ignored: ".$config{logs_to_be_ignored_in_nonprod});
+			$logger->info("IGNORING logcheck as environment not Production and non production logs are to be ignored for $job due to match with ".$config{logs_to_be_ignored_in_nonprod});
 			next LOGCHECK;
 		}
 	}
@@ -154,6 +157,14 @@ Where (which logfile) should the job have written into ? this logfile is expecte
 =item logRootPath
 
 instead of using the logRootPath configured in site.config, a special logRootPath can be optionally configured here for each log check.
+
+=item checkLogExistDelay
+
+hash of environment => delay entries, delay (in minutes) will be added to timeToCheck when checkLogExist is executed in this environment to cater for later executions in this environment
+
+=item prodEnvironmentInSeparatePath
+
+set to 1 if the production and other environments logs for this scriptname are in separate Paths defined by folderEnvironmentMapping (prod=root/Prod, test=root/Test, etc.), set to 0 if the production log is in the root folder and all other environments are below that folder (prod=root, test=root/Test, etc.)
 
 =back
 
