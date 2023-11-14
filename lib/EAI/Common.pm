@@ -1,4 +1,4 @@
-package EAI::Common 1.7;
+package EAI::Common 1.8;
 
 use strict; use feature 'unicode_strings'; use warnings; no warnings 'uninitialized';
 use Exporter qw(import); use EAI::DateUtil; use Data::Dumper qw(Dumper); use Getopt::Long qw(:config no_ignore_case); use Log::Log4perl qw(get_logger); use MIME::Lite (); use Scalar::Util qw(looks_like_number); use Module::Refresh ();
@@ -66,7 +66,8 @@ my %hashCheck = (
 		processEnd => 1, # specifies that the process is ended, checked in EAI::Wrap::processingEnd
 		redoDir => "", # actually set redoDir
 		retrievedFiles => [], # files retrieved from FTP or redo directory
-		retryBecauseOfError => 1, # retryBecauseOfError shows if a rerun occurs due to errors (for successMail) and also prevents several API calls from being run again.
+		retryBecauseOfError => 1, # retryBecauseOfError shows if a rerun occurs due to errors (for successMail) 
+		successfullyDone => "", # accumulates API sub names to prevent most API calls that ran successfully from being run again.
 		retrySeconds => 60, # how many seconds are passed between retries. This is set on error with process=>retrySecondsErr and if planned retry is defined with process=>retrySecondsPlanned
 		scriptname => "", # name of the current process script, also used in log/history setup together with addToScriptName for config{checkLookup} keys
 		timeToCheck => "", # for logchecker: scheduled time of job (don't look earlier for log entries)
@@ -527,7 +528,11 @@ sub setupLogging {
 		} else {
 			# Production: no errmailaddress found, error message to Testerrmailaddress (if set)
 			Log::Log4perl->appenders()->{"MAIL"}->{"appender"}->{"to"} = [$config{testerrmailaddress}] if $config{testerrmailaddress};
-			$logger->error("no errmailaddress found for ".$execute{scriptname}.$execute{addToScriptName}.", no entry found in \$config{checkLookup}{$execute{scriptname}.$execute{addToScriptName}}");
+			if ($execute{envraw}) {
+				$logger->error("no errmailaddress found, no entry found in \$config{testerrmailaddress}");
+			} else {
+				$logger->error("no errmailaddress found for ".$execute{scriptname}.$execute{addToScriptName}.", no entry found in \$config{checkLookup}{$execute{scriptname}$execute{addToScriptName}}");
+			}
 		}
 		setErrSubject("Setting up EAI::Wrap"); # general context after logging initialization: setup of EAI::Wrap by script
 	} else {
@@ -563,7 +568,7 @@ sub dumpFlat ($;$$) {
 	if ($compressDump) {
 		$dump =~ s/\s+//g;$dump =~ s/,'/,/g;$dump =~ s/{'/{/g;$dump =~ s/'=>/=>/g; # compress information
 	}
-	$dump =~ s/\$VAR1=//;
+	$dump =~ s/\$VAR1//;
 	$Data::Dumper::Indent = 2;
 	return $dump;
 }
@@ -804,7 +809,7 @@ set context specific subject for ErrorMail
 
 set up logging from site.config information (potentially split up using additional configs) and the central log.config. Important configs for logging in the config hash are logRootPath (direct or environment lookup setting for the log root folder), errmailaddress (default address for sending mails in case of error), errmailsubject (subject for error mails, can be changed with L<setErrSubject|/setErrSubject>), testerrmailaddress (default address for sending mails in case of error in non production environments), smtpServer (for error and other mail sending), smtpTimeout and checkLookup.
 
-checkLookup is both used by checkLogExist.pl and setupLogging. The key is used to lookup the scriptname (inlcuding .pl) + any additional defined interactive options, which are being passed to the script in an alphabetically sorted manner. So, a call of C<mytask.pl --process interactive_addinfo=add12 interactive_type=type3 interactive_zone=zone4> would yield a lookup of C<mytask.pladd12type3zone4>, which should have an existing key in checkLookup, like C<$config{checkLookup} = {"mytask.pladd12type3zone4" =E<gt> {...}, ...}>.
+checkLookup is both used by checkLogExist.pl and setupLogging. The key is used to lookup the scriptname (inlcuding .pl) + any additionally defined suffix(C<$execute{addToScriptName}>) that can be set with C<$config{executeOnInit}>. So, a call of C<mytask.pl --process interactive_addinfo=add12 interactive_type=type3 interactive_zone=zone4> and a definition C<$config{executeOnInit} = '$execute{addToScriptName} = $opt{process}{interactive_addinfo}.$opt{process}{interactive_type}.$opt{process}{interactive_zone};'> would yield a lookup of C<mytask.pladd12type3zone4>, which should have an existing key in checkLookup, like C<$config{checkLookup} = {"mytask.pladd12type3zone4" =E<gt> {...}, ...}>.
 
 Each entry of the sub-hash defines defines the errmailaddress to receive error mails and the errmailsubject, the rest is used by checkLogExist.pl.
 

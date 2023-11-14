@@ -56,7 +56,7 @@ chdir "./t";
 );
 @loads = (
 	{
-		File => {localFilesystemPath => ".",dontKeepHistory => 1,filename => "test.zip",extract => 1,format_sep => "\t",format_skip => 1,format_header => "col1	col2	col3",},
+		File => {localFilesystemPath => ".",dontKeepHistory => 1,filename => "test.zip",extract => 1,format_sep => qr/\t/,format_skip => 1,format_header => "col1	col2	col3",},
 	},
 	{
 		DB => {query => "select * from theTestTable"},

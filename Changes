@@ -32,3 +32,5 @@
 	- refactoring in EAI::File, fix access to line and other data in fieldCode and lineCode custom parsing hooks, added prodEnvironmentInSeparatePath for checkLogExist, fixed resetting retrievedFiles in getLocalFiles, changed logs_to_be_ignored_in_nonprod to regex, fixed curTime check and many other things in checkLogExist.
 1.7  Sat Nov 11 00:00:00 2023
 	- added formatTime, make_time and get_curtime_epochs to EAI::DateUtil. Added checkLogExistDelay and prodEnvironmentInSeparatePath to config and checkLookup for enhancement of checkLogExist. Fixed version problems with Data::XLSX::Parser setting minimum to 0.20. Fixed time checks and logRootPath problems in checkLogExist
+1.8  Tue Nov 15 00:00:00 2023
+	- implemented API execution prevention with $execute{successfullyDone} instead of $execute{retryBecauseOfError} (only used in processingEnd() now). Fixed successMail for retrying. improved log messages and removed warnings. fixed setDebugLevel.pl finding log.config in environment.
