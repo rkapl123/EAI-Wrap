@@ -1,7 +1,7 @@
-package EAI::Common 1.8;
+package EAI::Common 1.9;
 
 use strict; use feature 'unicode_strings'; use warnings; no warnings 'uninitialized';
-use Exporter qw(import); use EAI::DateUtil; use Data::Dumper qw(Dumper); use Getopt::Long qw(:config no_ignore_case); use Log::Log4perl qw(get_logger); use MIME::Lite (); use Scalar::Util qw(looks_like_number); use Module::Refresh ();
+use Exporter qw(import); use EAI::DateUtil; use Data::Dumper qw(Dumper); use Getopt::Long qw(:config no_ignore_case); use Log::Log4perl qw(get_logger); use MIME::Lite (); use Scalar::Util qw(looks_like_number);
 # to make use of colored logs with Log::Log4perl::Appender::ScreenColoredLevels on windows we have to use that (special "use" to make this optional on non-win environments)
 BEGIN {
 	if ($^O =~ /MSWin/) {require Win32::Console::ANSI; Win32::Console::ANSI->import();}
@@ -67,7 +67,6 @@ my %hashCheck = (
 		redoDir => "", # actually set redoDir
 		retrievedFiles => [], # files retrieved from FTP or redo directory
 		retryBecauseOfError => 1, # retryBecauseOfError shows if a rerun occurs due to errors (for successMail) 
-		successfullyDone => "", # accumulates API sub names to prevent most API calls that ran successfully from being run again.
 		retrySeconds => 60, # how many seconds are passed between retries. This is set on error with process=>retrySecondsErr and if planned retry is defined with process=>retrySecondsPlanned
 		scriptname => "", # name of the current process script, also used in log/history setup together with addToScriptName for config{checkLookup} keys
 		timeToCheck => "", # for logchecker: scheduled time of job (don't look earlier for log entries)
@@ -193,6 +192,7 @@ my %hashCheck = (
 		hadErrors => 1, # set to 1 if there were any errors in the process
 		interactive_ => "", # interactive options (are not checked), can be used to pass arbitrary data via command line into the script (eg a selected date for the run with interactive_date).
 		onlyExecFor => qr//, # mark loads to only be executed when $common{task}{execOnly} !~ $load->{process}{onlyExecFor}
+		successfullyDone => "", # accumulates API sub names to prevent most API calls that ran successfully from being run again.
 		uploadCMD => "", # upload command for use with uploadFileCMD
 		uploadCMDPath => "", # path of upload command
 		uploadCMDLogfile => "", # logfile where command given in uploadCMD writes output (for error handling)
@@ -232,7 +232,7 @@ our $EAI_WRAP_CONFIG_PATH; our $EAI_WRAP_SENS_CONFIG_PATH;
 my @coreConfig = ("DB","File","FTP","process");
 my @commonCoreConfig = (@coreConfig,"task");
 my @allConfig = (@commonCoreConfig,"config");
-my $logConfig;
+our $logConfig;
 
 # read given config file (eval perl code)
 sub readConfigFile ($) {
@@ -571,14 +571,6 @@ sub dumpFlat ($;$$) {
 	$dump =~ s/\$VAR1//;
 	$Data::Dumper::Indent = 2;
 	return $dump;
-}
-
-# refresh modules and logging config for changes
-sub refresh {
-	# refresh modules to enable correction of processing without restart
-	Module::Refresh->refresh;
-	# also check for changes in logging configuration
-	Log::Log4perl::init($logConfig);
 }
 
 # check starting conditions and return 1 if met

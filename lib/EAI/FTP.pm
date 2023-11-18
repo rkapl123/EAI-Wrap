@@ -1,4 +1,4 @@
-package EAI::FTP 1.8;
+package EAI::FTP 1.9;
 
 use strict; use feature 'unicode_strings'; use warnings;
 use Exporter qw(import); use Net::SFTP::Foreign (); use Net::SFTP::Foreign::Constants qw( SFTP_ERR_LOCAL_UTIME_FAILED ); use Net::FTP (); use Text::Glob qw(match_glob);
@@ -144,7 +144,7 @@ sub removeFilesOlderX ($) {
 			my $newDate = addDatePart(addDatePart(addDatePart(get_curdate(),-$param->{remove}{year},"y"),-$param->{remove}{mon},"m"),-$param->{remove}{day},"d");
 			$logger->info("remove files in FTP (archive)folder older than $param->{remove}{year} years,$param->{remove}{mon} months and $param->{remove}{day} days (decreased in this order), resulting in cut off date $newDate");
 			my $mtimeToKeep = parseFromYYYYMMDD($newDate);
-			$logger->debug("changing into FTP remoteDir $param->{remoteDir}");
+			$logger->debug(($param->{remoteDir} ? "changing into ".$param->{remoteDir} : "remaining in home"));
 			_setcwd(undef) if (substr($param->{remoteDir},0,1) eq "/"); # starting / means start from home...
 			my $remoteDir = (substr($param->{remoteDir},0,1) eq "/" ? substr($param->{remoteDir},1) : $param->{remoteDir});
 			$remoteDir = ((substr($remoteDir,-1) eq "/" or $remoteDir eq "") ? $remoteDir : $remoteDir."/");
@@ -158,7 +158,7 @@ sub removeFilesOlderX ($) {
 				}
 				$logger->info("$remoteDir$folder: no Files to remove !") if !@$files;
 			} else {
-				$logger->error("can't cwd to remove folder $remoteDir$folder: "._error().", status: "._status());
+				$logger->error("can't change into remote-directory $remoteDir$folder: "._error().", status: "._status());
 				return 0;
 			}
 		}
@@ -179,7 +179,7 @@ sub fetchFiles ($$) {
 	my $queue_size = $FTP->{queue_size};
 	$queue_size = 1 if !$queue_size; # queue_size bigger 1 causes often connection issues
 	if (defined $ftp) {
-		$logger->debug("changing into folder $FTP->{remoteDir}");
+		$logger->debug(($FTP->{remoteDir} ? "changing into ".$FTP->{remoteDir} : "remaining in home"));
 		_setcwd(undef) if (substr($FTP->{remoteDir},0,1) eq "/"); # starting / means start from home...
 		my $remoteDir = (substr($FTP->{remoteDir},0,1) eq "/" ? substr($FTP->{remoteDir},1) : $FTP->{remoteDir});
 		if (_setcwd($remoteDir)) {
@@ -247,7 +247,7 @@ sub putFile ($$) {
 	};
 	if (defined $ftp) {
 		my $doSetStat = ($FTP->{dontDoSetStat} ? 0 : 1);
-		$logger->debug("changing into folder $FTP->{remoteDir}");
+		$logger->debug(($FTP->{remoteDir} ? "changing into ".$FTP->{remoteDir} : "remaining in home"));
 		_setcwd(undef) if (substr($FTP->{remoteDir},0,1) eq "/"); # starting / means start from home...
 		my $remoteDir = (substr($FTP->{remoteDir},0,1) eq "/" ? substr($FTP->{remoteDir},1) : $FTP->{remoteDir});
 		if (_setcwd($remoteDir)) {
@@ -300,7 +300,7 @@ sub moveTempFile ($$) {
 	};
 	$logger->info("final rename of temp Files for $localFile");
 	if (defined $ftp) {
-		$logger->debug("changing into folder $FTP->{remoteDir}");
+		$logger->debug(($FTP->{remoteDir} ? "changing into ".$FTP->{remoteDir} : "remaining in home"));
 		_setcwd(undef) if (substr($FTP->{remoteDir},0,1) eq "/"); # starting / means start from home...
 		my $remoteDir = (substr($FTP->{remoteDir},0,1) eq "/" ? substr($FTP->{remoteDir},1) : $FTP->{remoteDir});
 		if (_setcwd($remoteDir)) {
@@ -330,10 +330,10 @@ sub archiveFiles ($) {
 	$archiveTimestamp = get_curdatetime()."." if !defined($param->{timestamp});
 	if (defined $ftp and @filesToArchive) {
 		$logger->info("archiving files @filesToArchive");
-		$logger->debug("changing into ".$param->{remoteDir});
+		$logger->debug(($param->{remoteDir} ? "changing into ".$param->{remoteDir} : "remaining in home"));
 		_setcwd(undef) if (substr($param->{remoteDir},0,1) eq "/"); # starting / means start from home...
 		my $remoteDir = (substr($param->{remoteDir},0,1) eq "/" ? substr($param->{remoteDir},1) : $param->{remoteDir});
-		my $archiveDir = ((substr($param->{archiveDir},-1) eq "/" or $param->{archiveDir} eq "") ? $param->{archiveDir} : $param->{archiveDir}."/");
+		my $archiveDir = ((substr($param->{archiveDir},-1) eq "/" or $param->{archiveDir} eq "") ? $param->{archiveDir} : $param->{archiveDir}."/") if $param->{archiveDir}; $archiveDir.="";
 		if (_setcwd($remoteDir)) {
 			for my $remoteFile (@filesToArchive) {
 				$logger->debug("moving $remoteFile to $archiveDir");
@@ -356,8 +356,8 @@ sub archiveFiles ($) {
 						$logger->debug("remote-file $remoteDir/$remoteFile archived to $archiveDir$archiveTimestamp$remoteFile");
 					} else {
 						my $errmsg = _error();
-						$logger->error("error: can't rename remote-file $remoteDir/$remoteFile to $archiveDir$archiveTimestamp$remoteFile, reason: $errmsg") if $errmsg !~ /No such file or directory/;
-						$logger->warn("error: $errmsg") if $errmsg =~ /No such file or directory/;
+						$logger->error("error: can't rename remote-file $remoteDir/$remoteFile to $archiveDir$archiveTimestamp$remoteFile, reason: $errmsg") if $errmsg !~ /no such file or directory/i and $errmsg !~ /does not exist/i;
+						$logger->warn("error: $errmsg") if $errmsg =~ /no such file or directory/i or $errmsg !~ /does not exist/i;
 					}
 				}
 			}
@@ -379,7 +379,7 @@ sub removeFiles ($) {
 	my @filesToRemove = @{$param->{filesToRemove}} if $param->{filesToRemove};
 	if (defined $ftp and @filesToRemove) {
 		$logger->info("removing files @filesToRemove");
-		$logger->debug("changing into ".$param->{remoteDir});
+		$logger->debug(($param->{remoteDir} ? "changing into ".$param->{remoteDir} : "remaining in home"));
 		_setcwd(undef) if (substr($param->{remoteDir},0,1) eq "/"); # starting / means start from home...
 		my $remoteDir = (substr($param->{remoteDir},0,1) eq "/" ? substr($param->{remoteDir},1) : $param->{remoteDir});
 		if (_setcwd($remoteDir)) {
@@ -388,8 +388,8 @@ sub removeFiles ($) {
 					$logger->debug("removed remote-file $remoteFile");
 				} else {
 					my $errmsg = _error();
-					$logger->error("error: can't remove remote-file $remoteFile, reason: $errmsg") if $errmsg !~ /no such file/i;
-					$logger->warn("error: can't remove remote-file $remoteFile, reason: $errmsg") if $errmsg =~ /no such file/i;
+					$logger->error("error: can't remove remote-file $remoteFile, reason: $errmsg") if $errmsg !~ /no such file/i and $errmsg !~ /does not exist/i;
+					$logger->warn("error: can't remove remote-file $remoteFile, reason: $errmsg") if $errmsg =~ /no such file/i or $errmsg !~ /does not exist/i;
 				}
 			}
 		} else {

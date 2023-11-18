@@ -118,7 +118,7 @@ uploadFileToFTP($loads[1]);
 getFilesFromFTP($loads[1]);
 $result = checkFiles($loads[1]);
 # 13
-is($result,1,"checkFiles \$loads[1] successful");
+is($result,1,"openFTPConn, uploadFileToFTP, getFilesFromFTP and checkFiles \$loads[1] successful");
 markProcessed($loads[1]);
 processingEnd();
 

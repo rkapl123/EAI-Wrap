@@ -34,3 +34,5 @@
 	- added formatTime, make_time and get_curtime_epochs to EAI::DateUtil. Added checkLogExistDelay and prodEnvironmentInSeparatePath to config and checkLookup for enhancement of checkLogExist. Fixed version problems with Data::XLSX::Parser setting minimum to 0.20. Fixed time checks and logRootPath problems in checkLogExist
 1.8  Tue Nov 15 00:00:00 2023
 	- implemented API execution prevention with $execute{successfullyDone} instead of $execute{retryBecauseOfError} (only used in processingEnd() now). Fixed successMail for retrying. improved log messages and removed warnings. fixed setDebugLevel.pl finding log.config in environment.
+1.9  Sat Nov 18 00:00:00 2023
+	- removed Module::Refresh, fixed successfullyDone by moving to $process{successfullyDone}, fixed issue with multiple occurences of files in filesToArchive and filesToRemove

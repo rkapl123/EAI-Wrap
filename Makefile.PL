@@ -20,7 +20,6 @@ WriteMakefile(
 		'Net::FTP' => 0,
 		'Net::SFTP::Foreign' => 0,
 		'MIME::Lite' => 0,
-		'Module::Refresh' => 0,
 		'HTML::HTML5::Entities' => 0,
 		'Spreadsheet::WriteExcel' => 0,
 		'Spreadsheet::ParseExcel' => 0,
