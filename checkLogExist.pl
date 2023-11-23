@@ -1,5 +1,6 @@
 use strict; use EAI::Wrap;
 
+my $defaultSplitcharacter = "\t"; # default character that splits log entries
 my $curDate = get_curdate();
 my $curDateDash = get_curdate_gen("Y/M/D");
 my $curhyphenDate = get_curdate_gen("Y-M-D");
@@ -14,6 +15,7 @@ $logger->info(">>>>>>> starting logcheck, curDate: $curDate, curDateDash: $curDa
 LOGCHECK:
 foreach my $job (keys %{$config{checkLookup}}) {
 	next LOGCHECK if $job eq "checkLogExist.pl"; # don't check our own logfile, configuration only for own error emailing (e.g from setupConfigMerge)
+	my $splitcharacter = ($config{checkLookup}{$job}{splitcharacter} ? $config{checkLookup}{$job}{splitcharacter} : $defaultSplitcharacter);
 	# delayed checking for environments/specific jobs, either general $config{checkLogExistDelay}{$execute{env}} or job specific $config{checkLookup}{$job}{checkLogExistDelay}{$execute{env}}:
 	my $checkLogExistDelay = (defined($config{checkLookup}{$job}{checkLogExistDelay}{$execute{env}}) ? $config{checkLookup}{$job}{checkLogExistDelay}{$execute{env}} : (defined($config{checkLogExistDelay}{$execute{env}}) ? $config{checkLogExistDelay}{$execute{env}} : 0));
 	my $freqToCheck = $config{checkLookup}{$job}{freqToCheck}; # frequency to check log file (business-daily, daily, monthly, etc.), default (if not given): every business day
@@ -73,14 +75,14 @@ foreach my $job (keys %{$config{checkLookup}}) {
 		# check log file for log check pattern, assumption tab separated!
 		while (<LOGFILE>){
 			my $wholeLine = $_;
-			my @logline = split "\t";
+			my @logline = split $splitcharacter;
 			# found, if log check pattern matches and date today, either YYYY/MM/DD or "german" logs using dd.mm.yyyy or log4j using YYYY-MM-DD
 			if (($logline[0] =~ /$curDateDash/ or $logline[0] =~ /$curdotDate/ or $logline[0] =~ /$curhyphenDate/) and $wholeLine =~ /$logcheck/) {
 				$logger->info("logcheck '".$logcheck."' successful, row:".$wholeLine);
 				close LOGFILE; next LOGCHECK;
 			}
 		}
-		$logger->info("$logcheck wasn't found in $logFileToCheck");
+		$logger->info("$logcheck wasn't found in $logFileToCheck on a line starting with $curDateDash or $curdotDate or $curhyphenDate");
 		$infos = "The log starting entry in logfile $logFileToCheck".$infos;
 	} else {
 		$infos = "The logfile $logFileToCheck".$infos;
@@ -165,6 +167,10 @@ hash of environment => delay entries, delay (in minutes) will be added to timeTo
 =item prodEnvironmentInSeparatePath
 
 set to 1 if the production and other environments logs for this scriptname are in separate Paths defined by folderEnvironmentMapping (prod=root/Prod, test=root/Test, etc.), set to 0 if the production log is in the root folder and all other environments are below that folder (prod=root, test=root/Test, etc.)
+
+= item splitcharacter
+
+character being used to separate the log entries of this logfile into columns (date, user, process, message, etc.)
 
 =back
 

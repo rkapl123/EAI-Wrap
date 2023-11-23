@@ -80,7 +80,7 @@ sub readFromDB ($$) {
 			@{$DB->{columnnames}} = @{$sth->{NAME}} if $sth->{NAME}; # take field names from the statement handle of query, used for later processing
 			@$data = @{$sth->fetchall_arrayref({})};
 		};
-		die $@.",DB error: ".$DBI::errstr." executed statement: ".$statement if ($@);
+		die "$@, executed statement: $statement" if ($@);
 	};
 	$dbh->{RaiseError} = 0;
 	if ($@) {

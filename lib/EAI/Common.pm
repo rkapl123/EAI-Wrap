@@ -505,6 +505,9 @@ sub setupLogging {
 	Log::Log4perl::init($logConfig);
 	my $logger = get_logger();
 	$logger->warn($noLogFolderErr) if $noLogFolderErr;
+	if (Log::Log4perl->appenders()->{"FILE"} and Log::Log4perl->appenders()->{"FILE"}->{"appender"}->{"fh"}) {
+		Log::Log4perl->appenders()->{"FILE"}->{"appender"}->{"fh"}->autoflush;
+	}
 	if ($config{smtpServer}) {
 		# remove explicitly enumerated lookups (1:scriptname.pl, 2:scriptname.pl)
 		for my $lookupKey (keys(%{$config{checkLookup}})) {

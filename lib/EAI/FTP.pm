@@ -144,10 +144,10 @@ sub removeFilesOlderX ($) {
 			my $newDate = addDatePart(addDatePart(addDatePart(get_curdate(),-$param->{remove}{year},"y"),-$param->{remove}{mon},"m"),-$param->{remove}{day},"d");
 			$logger->info("remove files in FTP (archive)folder older than $param->{remove}{year} years,$param->{remove}{mon} months and $param->{remove}{day} days (decreased in this order), resulting in cut off date $newDate");
 			my $mtimeToKeep = parseFromYYYYMMDD($newDate);
-			$logger->debug(($param->{remoteDir} ? "changing into ".$param->{remoteDir} : "remaining in home"));
-			_setcwd(undef) if (substr($param->{remoteDir},0,1) eq "/"); # starting / means start from home...
-			my $remoteDir = (substr($param->{remoteDir},0,1) eq "/" ? substr($param->{remoteDir},1) : $param->{remoteDir});
-			$remoteDir = ((substr($remoteDir,-1) eq "/" or $remoteDir eq "") ? $remoteDir : $remoteDir."/");
+			my $remoteDir = ($param->{remoteDir} ? $param->{remoteDir} : "");
+			$logger->debug(($remoteDir ? "changing into ".$remoteDir : "remaining in home"));
+			_setcwd(undef) if (substr($remoteDir,0,1) eq "/"); # starting / means start from home...
+			$remoteDir = (substr($remoteDir,0,1) eq "/" ? substr($remoteDir,1) : $remoteDir);
 			if (_setcwd($remoteDir.$folder)) {
 				my $files = _ls_age($mtimeToKeep) or $logger->error("can't get file list, reason: "._error().", status: "._status());
 				for my $file (@$files) {
@@ -174,14 +174,15 @@ sub removeFilesOlderX ($) {
 sub fetchFiles ($$) {
 	my ($FTP,$param) = @_;
 	my $logger = get_logger();
-	 # ignore errors for a file that was either removed with the first successful run or is optional
-	my $suppressGetError = (($FTP->{fileToRemove} && $param->{firstRunSuccess}) || $param->{fileToRetrieveOptional});
+	 # ignore errors for a file that was either removed/archived with the first successful run or is optional
+	my $suppressGetError = ((($FTP->{fileToRemove} || $FTP->{fileToArchive}) && $param->{firstRunSuccess}) || $param->{fileToRetrieveOptional});
 	my $queue_size = $FTP->{queue_size};
 	$queue_size = 1 if !$queue_size; # queue_size bigger 1 causes often connection issues
 	if (defined $ftp) {
-		$logger->debug(($FTP->{remoteDir} ? "changing into ".$FTP->{remoteDir} : "remaining in home"));
-		_setcwd(undef) if (substr($FTP->{remoteDir},0,1) eq "/"); # starting / means start from home...
-		my $remoteDir = (substr($FTP->{remoteDir},0,1) eq "/" ? substr($FTP->{remoteDir},1) : $FTP->{remoteDir});
+		my $remoteDir = ($FTP->{remoteDir} ? $FTP->{remoteDir} : "");
+		$logger->debug(($remoteDir ? "changing into ".$remoteDir : "remaining in home"));
+		_setcwd(undef) if (substr($remoteDir,0,1) eq "/"); # starting / means start from home...
+		$remoteDir = (substr($remoteDir,0,1) eq "/" ? substr($remoteDir,1) : $remoteDir);
 		if (_setcwd($remoteDir)) {
 			my $remoteFile = ($FTP->{path} ? $FTP->{path}."/" : "").$param->{fileToRetrieve};
 			my $localPath = ($FTP->{localDir} ? $FTP->{localDir} : $param->{homedir});
@@ -247,9 +248,10 @@ sub putFile ($$) {
 	};
 	if (defined $ftp) {
 		my $doSetStat = ($FTP->{dontDoSetStat} ? 0 : 1);
-		$logger->debug(($FTP->{remoteDir} ? "changing into ".$FTP->{remoteDir} : "remaining in home"));
-		_setcwd(undef) if (substr($FTP->{remoteDir},0,1) eq "/"); # starting / means start from home...
-		my $remoteDir = (substr($FTP->{remoteDir},0,1) eq "/" ? substr($FTP->{remoteDir},1) : $FTP->{remoteDir});
+		my $remoteDir = ($FTP->{remoteDir} ? $FTP->{remoteDir} : "");
+		$logger->debug(($remoteDir ? "changing into ".$remoteDir : "remaining in home"));
+		_setcwd(undef) if (substr($remoteDir,0,1) eq "/"); # starting / means start from home...
+		$remoteDir = (substr($remoteDir,0,1) eq "/" ? substr($remoteDir,1) : $remoteDir);
 		if (_setcwd($remoteDir)) {
 			if ($FTP->{dontUseTempFile}) {
 				$logger->info("uploading file $localFile");
@@ -300,9 +302,10 @@ sub moveTempFile ($$) {
 	};
 	$logger->info("final rename of temp Files for $localFile");
 	if (defined $ftp) {
-		$logger->debug(($FTP->{remoteDir} ? "changing into ".$FTP->{remoteDir} : "remaining in home"));
-		_setcwd(undef) if (substr($FTP->{remoteDir},0,1) eq "/"); # starting / means start from home...
-		my $remoteDir = (substr($FTP->{remoteDir},0,1) eq "/" ? substr($FTP->{remoteDir},1) : $FTP->{remoteDir});
+		my $remoteDir = ($FTP->{remoteDir} ? $FTP->{remoteDir} : "");
+		$logger->debug(($remoteDir ? "changing into ".$remoteDir : "remaining in home"));
+		_setcwd(undef) if (substr($remoteDir,0,1) eq "/"); # starting / means start from home...
+		$remoteDir = (substr($remoteDir,0,1) eq "/" ? substr($remoteDir,1) : $remoteDir);
 		if (_setcwd($remoteDir)) {
 			if ($ftp->rename("temp.".$localFile,$localFile)) {
 				$logger->debug("temporary file ${remoteDir}/temp.$localFile renamed to $localFile");
@@ -330,13 +333,14 @@ sub archiveFiles ($) {
 	$archiveTimestamp = get_curdatetime()."." if !defined($param->{timestamp});
 	if (defined $ftp and @filesToArchive) {
 		$logger->info("archiving files @filesToArchive");
-		$logger->debug(($param->{remoteDir} ? "changing into ".$param->{remoteDir} : "remaining in home"));
-		_setcwd(undef) if (substr($param->{remoteDir},0,1) eq "/"); # starting / means start from home...
-		my $remoteDir = (substr($param->{remoteDir},0,1) eq "/" ? substr($param->{remoteDir},1) : $param->{remoteDir});
+		my $remoteDir = ($param->{remoteDir} ? $param->{remoteDir} : "");
+		$logger->debug(($remoteDir ? "changing into ".$remoteDir : "remaining in home"));
+		_setcwd(undef) if (substr($remoteDir,0,1) eq "/"); # starting / means start from home...
+		$remoteDir = (substr($remoteDir,0,1) eq "/" ? substr($remoteDir,1) : $remoteDir);
 		my $archiveDir = ((substr($param->{archiveDir},-1) eq "/" or $param->{archiveDir} eq "") ? $param->{archiveDir} : $param->{archiveDir}."/") if $param->{archiveDir}; $archiveDir.="";
 		if (_setcwd($remoteDir)) {
 			for my $remoteFile (@filesToArchive) {
-				$logger->debug("moving $remoteFile to $archiveDir");
+				$logger->debug("archiving $remoteFile to ".($archiveDir ? $archiveDir : "same folder"));
 				if ($remoteFile =~ /\*/) { # if glob character contained, then move multiple files
 					my @remoteFiles = $ftp->glob($remoteFile, names_only => 1);
 					for my $specFile (@remoteFiles) {
@@ -379,9 +383,10 @@ sub removeFiles ($) {
 	my @filesToRemove = @{$param->{filesToRemove}} if $param->{filesToRemove};
 	if (defined $ftp and @filesToRemove) {
 		$logger->info("removing files @filesToRemove");
-		$logger->debug(($param->{remoteDir} ? "changing into ".$param->{remoteDir} : "remaining in home"));
-		_setcwd(undef) if (substr($param->{remoteDir},0,1) eq "/"); # starting / means start from home...
-		my $remoteDir = (substr($param->{remoteDir},0,1) eq "/" ? substr($param->{remoteDir},1) : $param->{remoteDir});
+		my $remoteDir = ($param->{remoteDir} ? $param->{remoteDir} : "");
+		$logger->debug(($remoteDir ? "changing into ".$remoteDir : "remaining in home"));
+		_setcwd(undef) if (substr($remoteDir,0,1) eq "/"); # starting / means start from home...
+		$remoteDir = (substr($remoteDir,0,1) eq "/" ? substr($remoteDir,1) : $remoteDir);
 		if (_setcwd($remoteDir)) {
 			for my $remoteFile (@filesToRemove) {
 				if (_remove($remoteFile)) {

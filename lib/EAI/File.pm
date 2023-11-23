@@ -537,13 +537,14 @@ sub readRow ($$$$$$$$$$) {
 	push @{$data}, {%line} if keys %line > 0 and !$skipLineAssignment;
 }
 
+our $value;
 # write text file
 sub writeText ($$) {
 	my ($File,$data) = @_;
 	my $logger = get_logger();
 	my $filename = $File->{filename};
 	if (ref($data) ne 'ARRAY') {
-		$logger->error("passed data in \$data is not a ref to array:".Dumper($data));
+		$logger->error("passed data in \$data is not a ref to array (you have to initialize it as an array):".Dumper($data));
 		return 0;
 	}
 	# in case we need to print out csv/quoted values
@@ -557,12 +558,12 @@ sub writeText ($$) {
 		});
 	}
 	my @columnnames; my @paddings;
-	if (ref($File->{columns}) eq 'ARRAY') {
-		@columnnames = @{$File->{columns}};
-	} elsif (ref($File->{columns}) eq 'HASH') {
+	if (ref($File->{columns}) eq 'HASH') {
 		@columnnames = map {$File->{columns}{$_}} sort keys %{$File->{columns}};
+	} elsif (ref($File->{columns}) eq 'ARRAY') {
+		@columnnames = @{$File->{columns}};
 	} else {
-		$logger->error("no field information given (columns should be ref to array or ref to hash)");
+		$logger->error("no field information given (columns should be ref to array or ref to hash, you have to initialize it as that)");
 		return 0;
 	}
 	if (ref($File->{format_padding}) eq 'ARRAY') {
@@ -625,19 +626,31 @@ sub writeText ($$) {
 					$logger->error("row passed in (\$data) is no ref to hash! should be \$VAR1 = {'key' => 'value', ...}:\n".Dumper($row));
 					return 0;
 				}
-				my $value = $row->{$colname};
+				$value = $row->{$colname};
 				$logger->trace("\$value for \$colname $colname: $value") if $logger->is_trace;
 				if ($File->{addtlProcessingTrigger} && $File->{addtlProcessing}) {
-					eval $File->{addtlProcessingTrigger} if (eval $File->{addtlProcessingTrigger});
+					my $doAddtlProcessing = eval $File->{addtlProcessingTrigger};
 					if ($@) {
-						$logger->error("error in eval addtlProcessing: ".$File->{addtlProcessingTrigger}.":".$@);
+						$logger->error("error in eval addtlProcessingTrigger: ".$File->{addtlProcessingTrigger}.":".$@);
 						return 0;
+					}
+					if ($doAddtlProcessing) {
+						if (ref( $File->{addtlProcessing}) eq "CODE") {
+							eval {$File->{addtlProcessing}->()};
+						} else {
+							eval $File->{addtlProcessing};
+						}
+						if ($@) {
+							$logger->error("error in eval addtlProcessing: ".$File->{addtlProcessing}.":".$@);
+							return 0;
+						}
+						$logger->trace("\$value after addtlProcessing: $value") if $logger->is_trace;
 					}
 				}
 				if ($File->{format_quotedcsv}) {
 					push @$lineRow, $value;
 				} else {
-					# last column ($columnnames[@columnnames-1]) should have not separator afterwards
+					# last column ($columnnames[@columnnames-1]) should not have a separator afterwards
 					$lineRow = $lineRow.($firstcol ? "" : $File->{format_sep}).sprintf("%s", $value) if (!$File->{format_fix});
 					# additional padding for fixed length format
 					$lineRow = $lineRow.sprintf("%-*s%s", $paddings[$col],$value) if ($File->{format_fix});
@@ -673,8 +686,10 @@ sub writeExcel ($$) {
 	my @columnnames;
 	if (ref($File->{columns}) eq 'HASH') {
 		@columnnames = map {$File->{columns}{$_}} sort keys %{$File->{columns}};
+	} elsif (ref($File->{columns}) eq 'ARRAY') {
+		@columnnames = @{$File->{columns}}; 
 	} else {
-		$logger->error("no field information given (columns should be ref to hash)");
+		$logger->error("no field information given (columns should be ref to array or ref to hash, you have to initialize it as that)");
 		return 0;
 	}
 	my ($workbook,$worksheet);

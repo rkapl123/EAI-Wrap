@@ -146,6 +146,7 @@ like(get_curtime("%02d_%02d_%02d"),qr/\d{2}_\d{2}_\d{2}/,'get_curtime with forma
 like(get_curtime("%02d%02d%02d"),qr/\d{2}\d{2}\d{2}/,'get_curtime with format %02d%02d%02d');
 print "get_curtime HHMMSS:".get_curtime("%02d%02d%02d")."\n";
 print "get_curtime HHMMSS + 30 seconds:".get_curtime("%02d%02d%02d",30)."\n";
+print "get_curtime HHMMSS + 1 day (next day):".get_curtime("%02d%02d%02d",24*60*60)."\n";
 #like(get_curtime("%02d%02d"),qr/\d{2}\d{2}/,'get_curtime with format %02d%02d'); this throws a warning Redundant argument in sprintf at C:\dev\EAI\lib/EAI/DateUtil.pm
 like(get_curtime("%02d%02d%02d"),qr/\d{2}\d{2}\d{2}/,'get_curtime with format %02d%02d%02d');
 like(get_curtime_HHMM(),qr/\d{4}/,'get_curtime_HHMM');

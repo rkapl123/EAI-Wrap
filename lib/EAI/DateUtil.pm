@@ -112,6 +112,7 @@ sub get_curdate_dash_plus_X_years ($;$$) {
 	return undef if !$y;
 	my ($year,$mon,$day) = $_[1] =~ /(.{4})(..)(..)/ if $_[1];
 	my $daysToSubtract = $_[2] if $_[2];
+	# date given as second argument: add X years (minus daysToSubtract) from that date
 	if ($year) {
 		my $dateval;
 		if ($daysToSubtract) {
@@ -121,6 +122,7 @@ sub get_curdate_dash_plus_X_years ($;$$) {
 		}
 		return sprintf("%02d-%02d-%04d",$dateval->mday(), $dateval->mon()+1, $dateval->year()+ 1900 + $y);
 	} else {
+		# add X years (minus daysToSubtract) from today
 		return sprintf("%02d-%02d-%04d",localtime->mday(), localtime->mon()+1, localtime->year()+ 1900 + $y);
 	}
 }
@@ -131,7 +133,8 @@ sub get_curtime (;$$) {
 	$format = "%02d:%02d:%02d" if !$format;
 	if ($secondsToAdd) {
 		my $timeval = localtime(time()+$secondsToAdd);
-		return sprintf($format,$timeval->hour(),$timeval->min(),$timeval->sec());
+		# include 1 before to indicate overflow
+		return ($timeval->mday() ne localtime(time())->mday() ? "1" : "").sprintf($format,$timeval->hour(),$timeval->min(),$timeval->sec());
 	} else {
 		return sprintf($format,localtime->hour(),localtime->min(),localtime->sec());
 	}
@@ -696,7 +699,7 @@ returns current time in epochs as from builtin function time()
 
 =item get_curtime (;$$)
 
-returns current time in format HH:MM:SS + optional $secondsToAdd (or as given in formatstring $format, however ordering of format is always hour, minute and second)
+returns current time in format HH:MM:SS + optional $secondsToAdd (or as given in formatstring $format, however ordering of format is always hour, minute and second). Additionally 1 is put in front if adding $secondsToAdd lead to a day overflow.
 
  $format .. optional sprintf format string (e.g. %02d:%02d:%02d) for hour, minute and second. If less than three tags are passed then a warning is "Redundant argument in sprintf at ..." is thrown here.
  $secondsToAdd .. optional seconds to add to current time before returning

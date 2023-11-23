@@ -84,8 +84,9 @@ sub removeFilesinFolderOlderX ($) {
 }
 
 # open a DB connection
-sub openDBConn ($) {
+sub openDBConn ($;$) {
 	my $arg = shift;
+	my $enforceConn = shift;
 	my $logger = get_logger();
 	my ($DB,$process) = EAI::Common::extractConfigs("opening DB connection",$arg,"DB","process");
 	# only for set prefix, take username and password from $config{sensitive}{$DB->{prefix}}
@@ -95,7 +96,13 @@ sub openDBConn ($) {
 	}
 	my ($DSNeval, $newDSN);
 	$DSNeval = $DB->{DSN};
-	return 1 if $process->{successfullyDone} and $process->{successfullyDone} =~ /\QopenDBConn$DSNeval/;
+	if ($enforceConn) {
+		$logger->info("enforced DB reconnect");
+		# close connection to reopen when enforced connect
+		$EAI::DB::DSN = "";
+	} else {
+		return 1 if $process->{successfullyDone} and $process->{successfullyDone} =~ /\QopenDBConn$DSNeval/;
+	}
 	unless ($DSNeval) {
 		$logger->error("no DSN available in \$DB->{DSN}");
 		return 0;
@@ -118,12 +125,19 @@ sub openDBConn ($) {
 }
 
 # open a FTP connection
-sub openFTPConn ($) {
+sub openFTPConn ($;$) {
 	my $arg = shift;
+	my $enforceConn = shift;
 	my $logger = get_logger();
 	my ($FTP,$process) = EAI::Common::extractConfigs("opening FTP connection",$arg,"FTP","process");
 	my $hostname = $FTP->{remoteHost}{$execute{env}};
-	return 1 if $process->{successfullyDone} and $process->{successfullyDone} =~ /\QopenFTPConn$hostname/;
+	if ($enforceConn) {
+		$logger->info("enforced FTP reconnect");
+		# close connection to reopen when enforced connect
+		$EAI::FTP::RemoteHost = "";
+	} else {
+		return 1 if $process->{successfullyDone} and $process->{successfullyDone} =~ /\QopenFTPConn$hostname/;
+	}
 	# only for set prefix, take username, password, hostkey and privKey from $config{sensitive}{$FTP->{prefix}} (directly or via environment hash)
 	if ($FTP->{prefix}) {
 		$FTP->{user} = getSensInfo($FTP->{prefix},"user");
@@ -797,7 +811,7 @@ sub processingEnd {
 		$endTime .= "59" if $endTime and length($endTime) == 4;
 		$endTime = "240000" if !$endTime and $processFailed;
 		$endTime = "000000->not set" if !$endTime; # if neither planned nor process failed then endtime is undefined and needs to be lower than any currentTime for next decision
-		if ($failcountFinish or $nextStartTime >= $endTime or ($nextStartTime =~ /24..../)) {
+		if ($failcountFinish or $nextStartTime >= $endTime or ($nextStartTime =~ /1....../)) {
 			$logger->info("finished processing due ".($failcountFinish ? "to reaching set error count \$common{task}{retrySecondsXfails} $common{task}{retrySecondsXfails} and \$common{task}{retrySecondsErrAfterXfails} is false" : "to time out: next start time(".$nextStartTime.") >= endTime(".$endTime.") or after midnight"));
 			moveFilesToHistory($common{task}{customHistoryTimestamp});
 			deleteFiles($execute{filesToDelete}) if $execute{filesToDelete};
