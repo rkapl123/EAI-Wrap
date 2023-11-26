@@ -36,3 +36,7 @@
 	- implemented API execution prevention with $execute{successfullyDone} instead of $execute{retryBecauseOfError} (only used in processingEnd() now). Fixed successMail for retrying. improved log messages and removed warnings. fixed setDebugLevel.pl finding log.config in environment.
 1.9  Sat Nov 18 00:00:00 2023
 	- removed Module::Refresh, fixed successfullyDone by moving to $process{successfullyDone}, fixed issue with multiple occurences of files in filesToArchive and filesToRemove
+1.901  Fri Nov 24 00:00:00 2023
+	- added splitcharacter in checkLogExist, autoflush to log file appender handle, include 1 before to indicate overflow in EAI::DateUtil::get_curtime, improved remoteDir setting in EAI::FTP, fixed and enhanced doAddtlProcessing in EAI::File::writeText, added enforceConn to EAI::Wrap::openDBConn and EAI::Wrap::openFTPConn
+1.902  Sun Nov 26 00:00:00 2023
+	- made changing to remoteDirs configurable for hosts where direct changing is not possible with setting noDirectRemoteDirChange to 1, allow adding additional Net::SFTP::Foreign params to EAI::FTP::putFile using additionalParams, added possibility to put multiple localFiles with EAI::FTP::putFile, generalized getSensInfo into getKeyInfo, allowing also prefixed (environment respecting) key information from DB, FTP, etc. subhashes, currently used for getting $DB{DSN} and $FTP{remoteHost}, improved argument checking and logging in sendGeneralMail

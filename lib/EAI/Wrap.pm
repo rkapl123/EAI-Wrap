@@ -1,4 +1,4 @@
-package EAI::Wrap 1.9;
+package EAI::Wrap 1.902;
 
 use strict; use feature 'unicode_strings'; use warnings;
 use Exporter qw(import); use Data::Dumper qw(Dumper); use File::Copy qw(copy move); use Cwd qw(chdir); use Archive::Extract ();
@@ -20,7 +20,7 @@ monthsToInt intToMonths addLocaleMonths get_curdate get_curdatetime get_curdate_
 newDBH beginWork commit rollback readFromDB readFromDBHash doInDB storeInDB deleteFromDB updateInDB getConn setConn
 readText readExcel readXML writeText writeExcel
 removeFilesOlderX fetchFiles putFile moveTempFile archiveFiles removeFiles login getHandle setHandle
-readConfigFile getSensInfo setupConfigMerge getOptions setupEAIWrap setErrSubject dumpFlat extractConfigs checkHash checkParam setupLogging checkStartingCond sendGeneralMail
+readConfigFile getKeyInfo setupConfigMerge getOptions setupEAIWrap setErrSubject dumpFlat extractConfigs checkHash checkParam setupLogging checkStartingCond sendGeneralMail
 get_logger Dumper);
 
 # initialize module, reading all config files and setting basic execution variables
@@ -91,11 +91,13 @@ sub openDBConn ($;$) {
 	my ($DB,$process) = EAI::Common::extractConfigs("opening DB connection",$arg,"DB","process");
 	# only for set prefix, take username and password from $config{sensitive}{$DB->{prefix}}
 	if ($DB->{prefix}) {
-		$DB->{user} = getSensInfo($DB->{prefix},"user");
-		$DB->{pwd} = getSensInfo($DB->{prefix},"pwd");
+		$DB->{user} = EAI::Common::getKeyInfo($DB->{prefix},"user","sensitive");
+		$DB->{pwd} = EAI::Common::getKeyInfo($DB->{prefix},"pwd","sensitive");
 	}
 	my ($DSNeval, $newDSN);
 	$DSNeval = $DB->{DSN};
+	# fall back to config level prefix defined DSN if not specifically given
+	$DSNeval = EAI::Common::getKeyInfo($DB->{prefix},"DSN","DB") if !$DSNeval;
 	if ($enforceConn) {
 		$logger->info("enforced DB reconnect");
 		# close connection to reopen when enforced connect
@@ -131,6 +133,8 @@ sub openFTPConn ($;$) {
 	my $logger = get_logger();
 	my ($FTP,$process) = EAI::Common::extractConfigs("opening FTP connection",$arg,"FTP","process");
 	my $hostname = $FTP->{remoteHost}{$execute{env}};
+	# fall back to config level prefix defined hostname if not specifically given
+	$hostname = EAI::Common::getKeyInfo($FTP->{prefix},"remoteHost","FTP") if !$hostname;
 	if ($enforceConn) {
 		$logger->info("enforced FTP reconnect");
 		# close connection to reopen when enforced connect
@@ -140,15 +144,16 @@ sub openFTPConn ($;$) {
 	}
 	# only for set prefix, take username, password, hostkey and privKey from $config{sensitive}{$FTP->{prefix}} (directly or via environment hash)
 	if ($FTP->{prefix}) {
-		$FTP->{user} = getSensInfo($FTP->{prefix},"user");
-		$FTP->{pwd} = getSensInfo($FTP->{prefix},"pwd");
-		$FTP->{hostkey} = getSensInfo($FTP->{prefix},"hostkey");
-		$FTP->{privKey} = getSensInfo($FTP->{prefix},"privKey");
+		$FTP->{user} = EAI::Common::getKeyInfo($FTP->{prefix},"user","sensitive");
+		$FTP->{pwd} = EAI::Common::getKeyInfo($FTP->{prefix},"pwd","sensitive");
+		$FTP->{hostkey} = EAI::Common::getKeyInfo($FTP->{prefix},"hostkey","sensitive");
+		$FTP->{privKey} = EAI::Common::getKeyInfo($FTP->{prefix},"privKey","sensitive");
 	}
 	(!$FTP->{user}) and do {
 		$logger->error("ftp user neither set in \$FTP->{user} nor in \$config{sensitive}{".$FTP->{prefix}."}{user} !");
 		return 0;
 	};
+	$logger->debug("\$FTP->{user}:$FTP->{user}, \$FTP->{privKey}:$FTP->{privKey}, \$FTP->{hostkey}:$FTP->{hostkey}");
 	EAI::FTP::login($FTP,$hostname) or do {
 		no warnings 'uninitialized';
 		$logger->error("couldn't open ftp connection for \$FTP{remoteHost}{$execute{env}} (".$hostname.")");
@@ -1078,11 +1083,15 @@ argument $arg (ref to current load or common)
 
 open a DB connection with the information provided in C<$DB-E<gt>{user}>, C<$DB-E<gt>{pwd}> (these can be provided by the sensitive information looked up using C<$DB-E<gt>{prefix}>) and C<$DB-E<gt>{DSN}> which can be dynamically configured using information from C<$DB> itself, using C<$execute{env}> inside C<$DB-E<gt>{server}{*}>: C<'driver={SQL Server};Server=$DB-E<gt>{server}{$execute{env}};database=$DB-E<gt>{database};TrustedConnection=Yes;'>, also see L<EAI::DB::newDBH|EAI::DB/newDBH>
 
+If the DSN information is not found in C<$DB> then a system wide DSN for the set $DB{prefix} is tried to be fetched from C<$config{DB}{$DB{prefix}}{DSN}>. This also respects environment information in C<$execute{env}> if configured.
+
 =item openFTPConn ($)
 
 argument $arg (ref to current load or common)
 
 open a FTP connection with the information provided in C<$FTP-E<gt>{remoteHost}>, C<$FTP-E<gt>{user}>, C<$FTP-E<gt>{pwd}>, C<$FTP-E<gt>{hostkey}>, C<$FTP-E<gt>{privKey}> (these four can be provided by the sensitive information looked up using C<$FTP-E<gt>{prefix}>) and C<$execute{env}>, also see L<EAI::FTP::login|EAI::FTP/login>
+
+If the remoteHost information is not found in C<$FTP> then a system wide remoteHost for the set $FTP{prefix} is tried to be fetched from C<$config{FTP}{$FTP{prefix}}{remoteHost}>. This also respects environment information in C<$execute{env}> if configured.
 
 =item redoFiles ($)
 
@@ -1498,7 +1507,7 @@ done in writeFileFromDB after readFromDB, execute perl code in postReadProcessin
 
 =item prefix
 
-key for sensitive information (e.g. pwd and user) in config{sensitive}
+key for sensitive information (e.g. pwd and user) in config{sensitive} or system wide DSN in config{DB}{prefix}{DSN}. respects environment in $execute{env} if configured.
 
 =item primkey
 
@@ -1768,6 +1777,10 @@ optional: local folder for files to be placed, if not given files are downloaded
 
 maximum number of tries for connecting in login procedure
 
+=item noDirectRemoteDirChange
+
+if no direct change into absolute paths (/some/path/to/change/into) ist possible then set this to 1, this separates the change into setcwd(undef) and setcwd(remoteDir)
+
 =item onlyArchive
 
 only archive/remove on the FTP server, requires archiveDir to be set
@@ -1782,7 +1795,7 @@ ftp/sftp port (leave empty for default port 22)
 
 =item prefix
 
-key for sensitive information (e.g. pwd and user) in config{sensitive}
+key for sensitive information (e.g. pwd and user) in config{sensitive} or system wide remoteHost in config{FTP}{prefix}{remoteHost}. respects environment in $execute{env} if configured.
 
 =item privKey
 

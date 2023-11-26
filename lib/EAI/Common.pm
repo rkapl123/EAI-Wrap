@@ -1,4 +1,4 @@
-package EAI::Common 1.9;
+package EAI::Common 1.902;
 
 use strict; use feature 'unicode_strings'; use warnings; no warnings 'uninitialized';
 use Exporter qw(import); use EAI::DateUtil; use Data::Dumper qw(Dumper); use Getopt::Long qw(:config no_ignore_case); use Log::Log4perl qw(get_logger); use MIME::Lite (); use Scalar::Util qw(looks_like_number);
@@ -7,7 +7,7 @@ BEGIN {
 	if ($^O =~ /MSWin/) {require Win32::Console::ANSI; Win32::Console::ANSI->import();}
 }
 
-our @EXPORT = qw($EAI_WRAP_CONFIG_PATH $EAI_WRAP_SENS_CONFIG_PATH %common %config %execute @loads @optload %opt readConfigFile getSensInfo setupConfigMerge getOptions setupEAIWrap dumpFlat extractConfigs checkHash checkParam getLogFPathForMail getLogFPath MailFilter setErrSubject setupLogging checkStartingCond sendGeneralMail looks_like_number get_logger);
+our @EXPORT = qw($EAI_WRAP_CONFIG_PATH $EAI_WRAP_SENS_CONFIG_PATH %common %config %execute @loads @optload %opt readConfigFile getKeyInfo setupConfigMerge getOptions setupEAIWrap dumpFlat extractConfigs checkHash checkParam getLogFPathForMail getLogFPath MailFilter setErrSubject setupLogging checkStartingCond sendGeneralMail looks_like_number get_logger);
 
 my %hashCheck = (
 	common => {
@@ -99,7 +99,7 @@ my %hashCheck = (
 		postDumpExecs => [], # array for execs done in dumpDataIntoDB after postDumpProcessing and before commit/rollback: [{execs => ['',''], condition => ''}]. doInDB all execs if condition (evaluated string or anonymous sub: condition => sub {...}) is fulfilled
 		postDumpProcessing => "", # done in dumpDataIntoDB after storeInDB, execute perl code in postDumpProcessing (evaluated string or anonymous sub: postDumpProcessing => sub {...})
 		postReadProcessing => "", # done in writeFileFromDB after readFromDB, execute perl code in postReadProcessing (evaluated string or anonymous sub: postReadProcessing => sub {...})
-		prefix => "", # key for sensitive information (e.g. pwd and user) in config{sensitive}
+		prefix => "", # key for sensitive information (e.g. pwd and user) in config{sensitive} or system wide DSN in config{DB}{prefix}{DSN}. respects environment in $execute{env} if configured.
 		primkey => "", # primary key indicator to be used for update statements, format: "key1 = ? AND key2 = ? ..."
 		pwd => "", # for password setting, either directly (insecure -> visible) or via sensitive lookup
 		query => "", # query statement used for readFromDB and readFromDBHash
@@ -167,10 +167,11 @@ my %hashCheck = (
 		hostkey => "", # hostkey to present to the server for Net::SFTP::Foreign, either directly (insecure -> visible) or via sensitive lookup
 		localDir => "", # optional: local folder for files to be placed, if not given files are downloaded into current folder
 		maxConnectionTries => 5, # maximum number of tries for connecting in login procedure
+		noDirectRemoteDirChange => 1, # if no direct change into absolute paths (/some/path/to/change/into) ist possible then set this to 1, this separates the change into setcwd(undef) and setcwd(remoteDir)
 		onlyArchive => 0, # only archive/remove on the FTP server, requires archiveDir to be set
 		path => "", # additional relative FTP path (under remoteDir which is set at login), where the file(s) is/are located
 		port => 22, # ftp/sftp port (leave empty for default port 22)
-		prefix => "ftp", # key for sensitive information (e.g. pwd and user) in config{sensitive}
+		prefix => "ftp", # key for sensitive information (e.g. pwd and user) in config{sensitive} or system wide remoteHost in config{FTP}{prefix}{remoteHost}. respects environment in $execute{env} if configured.
 		privKey => "", # sftp key file location for Net::SFTP::Foreign, either directly (insecure -> visible) or via sensitive lookup
 		pwd => "", # for password setting, either directly (insecure -> visible) or via sensitive lookup
 		queue_size => 1, # queue_size for Net::SFTP::Foreign, if > 1 this causes often connection issues
@@ -252,11 +253,11 @@ sub readConfigFile ($) {
 	print STDOUT "read $configfilename\n";
 }
 
-# get sensitive info from $config{sensitive}{$prefix}{$key}
-sub getSensInfo ($$) {
-	my ($prefix,$key) = @_;
+# get key info from $config{$area}{$prefix}{$key} (e.g. $config{sensitive}{$prefix}{$key}). Also checks if $config{$area}{$prefix}{$key} is a hash, then get info from $config{$area}{$prefix}{$key}{$execute{env}}
+sub getKeyInfo ($$$) {
+	my ($prefix,$key,$area) = @_;
 	# depending on queried key being a ref to hash, get the environment lookup hash key value or the value directly
-	return (ref($config{sensitive}{$prefix}{$key}) eq "HASH" ? $config{sensitive}{$prefix}{$key}{$execute{env}} : $config{sensitive}{$prefix}{$key});
+	return (ref($config{$area}{$prefix}{$key}) eq "HASH" ? $config{$area}{$prefix}{$key}{$execute{env}} : $config{$area}{$prefix}{$key});
 }
 
 # setupConfigMerge creates cascading inheritance of config/DB/File/FTP/process/task settings
@@ -626,7 +627,7 @@ sub sendGeneralMail ($$$$$$;$$$$) {
 	my ($From, $To, $Cc, $Bcc, $Subject, $Data, $Type, $Encoding, $AttachType, $AttachFile) = @_;
 	my $logger = get_logger();
 	$logger->error("cannot send mail as \$config{smtpServer} not set") if !$config{smtpServer};
-	$logger->info("sending general mail From:".($From ? $From : $config{fromaddress}).", To:".($execute{envraw} ? $config{testerrmailaddress} : $To).", CC:".($execute{envraw} ? "" : $Cc).", Bcc:".($execute{envraw} ? "" : $Bcc).", Subject:".($execute{envraw} ? $execute{envraw}.": " : "").$Subject.", Type:".($Type ? $Type : "TEXT").", Encoding:".($Type eq 'multipart/related' ? undef : $Encoding).", AttachType:$AttachType, AttachFile:$AttachFile ...");
+	$logger->info("sending general mail From:".($From ? $From : $config{fromaddress}).", To:".($execute{envraw} ? $config{testerrmailaddress} : $To).", CC:".($execute{envraw} ? "" : $Cc).", Bcc:".($execute{envraw} ? "" : $Bcc).", Subject:".($execute{envraw} ? $execute{envraw}.": " : "").$Subject.", Type:".($Type ? $Type : "TEXT").", Encoding:".($Type eq 'multipart/related' ? undef : $Encoding));
 	$logger->debug("Mailbody: $Data");
 	my $msg = MIME::Lite->new(
 			From    => ($From ? $From : $config{fromaddress}),
@@ -640,6 +641,14 @@ sub sendGeneralMail ($$$$$$;$$$$) {
 		);
 	$logger->error("couldn't create msg for mail sending..") unless $msg;
 	if ($Type eq 'multipart/related') {
+		if (ref($AttachFile) ne 'ARRAY') {
+			$logger->error("argument $AttachFile needs to be ref to array for type multipart/related");
+			return 0;
+		}
+		if (!$AttachType) {
+			$logger->error("no AttachType given for type multipart/related");
+			return 0;
+		}
 		$msg->attach(
 			Type => 'text/html',
 			Data    => $Data,
@@ -659,6 +668,10 @@ sub sendGeneralMail ($$$$$$;$$$$) {
 			Id   => $AttachFile,
 			Path => $AttachFile
 		);
+	}
+	if ($AttachFile and !$AttachType) {
+		$logger->error("no AttachType given for attachment $AttachFile");
+		return 0;
 	}
 	$msg->send();
 	if ($msg->last_send_successful()) {
@@ -702,7 +715,7 @@ EAI::Common - Common parts for the EAI::Wrap package
  %execute .. hash of parameters for current running task script
 
  readConfigFile ($configfilename)
- getSensInfo ($prefix, $key)
+ getKeyInfo ($prefix, $key, $area)
  setupConfigMerge ()
  getOptions ()
  extractConfigs ($contextSub, $arg, @required)
@@ -730,11 +743,11 @@ EAI::Common contains common used functions for L<EAI::Wrap>. This is for reading
 
 read given config file (eval perl code in site.config and related files)
 
-=item getSensInfo ($$)
+=item getKeyInfo ($$$)
 
-arguments are $prefix and $key
+arguments are $prefix, $key and $area
 
-get sensitive info from $config{sensitive}{$prefix}{$key}, depending on queried key being a ref to hash, get the environment lookup hash key value or the value directly
+get sensitive info from $config{$area}{$prefix}{$key}, depending on queried key being a ref to hash, get the environment lookup hash key value or the value directly. Area can be "sensitive" or any of the categories (sub-hashes), e.g. "FTP".
 
 =item setupConfigMerge
 
