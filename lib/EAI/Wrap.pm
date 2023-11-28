@@ -1,4 +1,4 @@
-package EAI::Wrap 1.902;
+package EAI::Wrap 1.903;
 
 use strict; use feature 'unicode_strings'; use warnings;
 use Exporter qw(import); use Data::Dumper qw(Dumper); use File::Copy qw(copy move); use Cwd qw(chdir); use Archive::Extract ();
@@ -20,7 +20,7 @@ monthsToInt intToMonths addLocaleMonths get_curdate get_curdatetime get_curdate_
 newDBH beginWork commit rollback readFromDB readFromDBHash doInDB storeInDB deleteFromDB updateInDB getConn setConn
 readText readExcel readXML writeText writeExcel
 removeFilesOlderX fetchFiles putFile moveTempFile archiveFiles removeFiles login getHandle setHandle
-readConfigFile getKeyInfo setupConfigMerge getOptions setupEAIWrap setErrSubject dumpFlat extractConfigs checkHash checkParam setupLogging checkStartingCond sendGeneralMail
+readConfigFile getSensInfo setupConfigMerge getOptions setupEAIWrap setErrSubject dumpFlat extractConfigs checkHash checkParam setupLogging checkStartingCond sendGeneralMail
 get_logger Dumper);
 
 # initialize module, reading all config files and setting basic execution variables
@@ -91,19 +91,17 @@ sub openDBConn ($;$) {
 	my ($DB,$process) = EAI::Common::extractConfigs("opening DB connection",$arg,"DB","process");
 	# only for set prefix, take username and password from $config{sensitive}{$DB->{prefix}}
 	if ($DB->{prefix}) {
-		$DB->{user} = EAI::Common::getKeyInfo($DB->{prefix},"user","sensitive");
-		$DB->{pwd} = EAI::Common::getKeyInfo($DB->{prefix},"pwd","sensitive");
+		$DB->{user} = EAI::Common::getSensInfo($DB->{prefix},"user");
+		$DB->{pwd} = EAI::Common::getSensInfo($DB->{prefix},"pwd");
 	}
 	my ($DSNeval, $newDSN);
 	$DSNeval = $DB->{DSN};
-	# fall back to config level prefix defined DSN if not specifically given
-	$DSNeval = EAI::Common::getKeyInfo($DB->{prefix},"DSN","DB") if !$DSNeval;
 	if ($enforceConn) {
 		$logger->info("enforced DB reconnect");
 		# close connection to reopen when enforced connect
 		$EAI::DB::DSN = "";
 	} else {
-		return 1 if $process->{successfullyDone} and $process->{successfullyDone} =~ /\QopenDBConn$DSNeval/;
+		return 1 if $process->{successfullyDone} and $process->{successfullyDone} =~ /\QopenDBConn$DSNeval/ and $execute{retryBecauseOfError};
 	}
 	unless ($DSNeval) {
 		$logger->error("no DSN available in \$DB->{DSN}");
@@ -132,22 +130,21 @@ sub openFTPConn ($;$) {
 	my $enforceConn = shift;
 	my $logger = get_logger();
 	my ($FTP,$process) = EAI::Common::extractConfigs("opening FTP connection",$arg,"FTP","process");
-	my $hostname = $FTP->{remoteHost}{$execute{env}};
-	# fall back to config level prefix defined hostname if not specifically given
-	$hostname = EAI::Common::getKeyInfo($FTP->{prefix},"remoteHost","FTP") if !$hostname;
+	my $hostname = $FTP->{remoteHost};
+	$hostname = $FTP->{remoteHost}{$execute{env}} if ref($FTP->{remoteHost}) eq "HASH";
 	if ($enforceConn) {
 		$logger->info("enforced FTP reconnect");
 		# close connection to reopen when enforced connect
 		$EAI::FTP::RemoteHost = "";
 	} else {
-		return 1 if $process->{successfullyDone} and $process->{successfullyDone} =~ /\QopenFTPConn$hostname/;
+		return 1 if $process->{successfullyDone} and $process->{successfullyDone} =~ /\QopenFTPConn$hostname/ and $execute{retryBecauseOfError};
 	}
 	# only for set prefix, take username, password, hostkey and privKey from $config{sensitive}{$FTP->{prefix}} (directly or via environment hash)
 	if ($FTP->{prefix}) {
-		$FTP->{user} = EAI::Common::getKeyInfo($FTP->{prefix},"user","sensitive");
-		$FTP->{pwd} = EAI::Common::getKeyInfo($FTP->{prefix},"pwd","sensitive");
-		$FTP->{hostkey} = EAI::Common::getKeyInfo($FTP->{prefix},"hostkey","sensitive");
-		$FTP->{privKey} = EAI::Common::getKeyInfo($FTP->{prefix},"privKey","sensitive");
+		$FTP->{user} = EAI::Common::getSensInfo($FTP->{prefix},"user");
+		$FTP->{pwd} = EAI::Common::getSensInfo($FTP->{prefix},"pwd");
+		$FTP->{hostkey} = EAI::Common::getSensInfo($FTP->{prefix},"hostkey");
+		$FTP->{privKey} = EAI::Common::getSensInfo($FTP->{prefix},"privKey");
 	}
 	(!$FTP->{user}) and do {
 		$logger->error("ftp user neither set in \$FTP->{user} nor in \$config{sensitive}{".$FTP->{prefix}."}{user} !");
@@ -156,7 +153,7 @@ sub openFTPConn ($;$) {
 	$logger->debug("\$FTP->{user}:$FTP->{user}, \$FTP->{privKey}:$FTP->{privKey}, \$FTP->{hostkey}:$FTP->{hostkey}");
 	EAI::FTP::login($FTP,$hostname) or do {
 		no warnings 'uninitialized';
-		$logger->error("couldn't open ftp connection for \$FTP{remoteHost}{$execute{env}} (".$hostname.")");
+		$logger->error("couldn't open ftp connection for $hostname");
 		return 0; # false means error in connection and signal to die...
 	};
 	$process->{successfullyDone}.="openFTPConn".$hostname;
@@ -222,7 +219,7 @@ sub getLocalFiles ($) {
 	my $arg = shift;
 	my $logger = get_logger();
 	my ($File,$process) = EAI::Common::extractConfigs("Getting local files",$arg,"File","process");
-	return 1 if $process->{successfullyDone} and $process->{successfullyDone} =~ /getLocalFiles/;
+	return 1 if $process->{successfullyDone} and $process->{successfullyDone} =~ /getLocalFiles/ and $execute{retryBecauseOfError};
 	@{$execute{retrievedFiles}} = (); # reset last retrieved
 	if ($File->{localFilesystemPath}) {
 		my $localFilesystemPath = $File->{localFilesystemPath};
@@ -270,7 +267,7 @@ sub getFilesFromFTP ($) {
 	my $arg = shift;
 	my $logger = get_logger();
 	my ($FTP,$File,$process) = EAI::Common::extractConfigs("Getting files from ftp",$arg,"FTP","File","process");
-	return 1 if $process->{successfullyDone} and $process->{successfullyDone} =~ /getFilesFromFTP/;
+	return 1 if $process->{successfullyDone} and $process->{successfullyDone} =~ /getFilesFromFTP/ and $execute{retryBecauseOfError};
 	@{$execute{retrievedFiles}} = (); # reset last retrieved, but this is also necessary to create the retrievedFiles hash entry for passing back the list from getFiles
 	if (defined($FTP->{remoteDir})) {
 		if ($common{task}{redoFile}) {
@@ -361,7 +358,7 @@ sub extractArchives ($) {
 	my $arg = shift;
 	my $logger = get_logger();
 	my ($process) = EAI::Common::extractConfigs("extracting archives",$arg,"process");
-	return 1 if $process->{successfullyDone} and $process->{successfullyDone}  =~ /extractArchives/;
+	return 1 if $process->{successfullyDone} and $process->{successfullyDone}  =~ /extractArchives/ and $execute{retryBecauseOfError};
 	my $redoDir = ($common{task}{redoFile} ? $execute{redoDir}."/" : "");
 	if ($execute{retrievedFiles}) { 
 		for my $filename (@{$execute{retrievedFiles}}) {
@@ -399,7 +396,7 @@ sub getAdditionalDBData ($;$) {
 	my ($arg,$refToDataHash) = @_;
 	my $logger = get_logger();
 	my ($DB,$process) = EAI::Common::extractConfigs("Getting additional data from DB",$arg,"DB","process");
-	return 1 if $process->{successfullyDone} and $process->{successfullyDone} =~ /getAdditionalDBData/;
+	return 1 if $process->{successfullyDone} and $process->{successfullyDone} =~ /getAdditionalDBData/ and $execute{retryBecauseOfError};
 	# reset additionalLookupData to avoid strange errors in retrying run. Also needed to pass data back as reference
 	%{$process->{additionalLookupData}} = ();
 	if ($refToDataHash and ref($refToDataHash) ne "HASH") {
@@ -420,7 +417,7 @@ sub readFileData ($) {
 	my $logger = get_logger();
 	my ($File,$process) = EAI::Common::extractConfigs("reading file data",$arg,"File","process");
 	my $redoDir = $execute{redoDir}."/" if $common{task}{redoFile};
-	return 1 if $process->{successfullyDone} and $process->{successfullyDone} =~ /readFileData/;
+	return 1 if $process->{successfullyDone} and $process->{successfullyDone} =~ /readFileData/ and $execute{retryBecauseOfError};
 	my $readSuccess;
 	if ($File->{format_xlformat}) {
 		$readSuccess = EAI::File::readExcel($File, \@{$process->{data}}, $process->{filenames}, $redoDir);
@@ -438,7 +435,7 @@ sub dumpDataIntoDB ($) {
 	my $arg = shift;
 	my $logger = get_logger();
 	my ($DB,$File,$process) = EAI::Common::extractConfigs("storing data to DB",$arg,"DB","File","process");
-	return 1 if $process->{successfullyDone} and $process->{successfullyDone} =~ /dumpDataIntoDB/;
+	return 1 if $process->{successfullyDone} and $process->{successfullyDone} =~ /dumpDataIntoDB/ and $execute{retryBecauseOfError};
 	our $hadDBErrors = 0;
 	if ($process->{data} and @{$process->{data}}) { # data supplied?
 		if ($DB->{noDumpIntoDB}) {
@@ -579,7 +576,7 @@ sub writeFileFromDB ($) {
 	my $arg = shift;
 	my $logger = get_logger();
 	my ($DB,$File,$process) = EAI::Common::extractConfigs("creating/writing file from DB",$arg,"DB","File","process");
-	return 1 if $process->{successfullyDone} and $process->{successfullyDone} =~ /writeFileFromDB/;
+	return 1 if $process->{successfullyDone} and $process->{successfullyDone} =~ /writeFileFromDB/ and $execute{retryBecauseOfError};
 	my @columnnames;
 	# get data from database, including column names (passed by ref)
 	@{$DB->{columnnames}} = (); # reset columnnames to pass data back as reference
@@ -608,7 +605,7 @@ sub putFileInLocalDir ($) {
 	my $arg = shift;
 	my $logger = get_logger();
 	my ($File,$process) = EAI::Common::extractConfigs("putting file into local folder",$arg,"File","process");
-	return 1 if $process->{successfullyDone} and $process->{successfullyDone} =~ /putFileInLocalDir/;
+	return 1 if $process->{successfullyDone} and $process->{successfullyDone} =~ /putFileInLocalDir/ and $execute{retryBecauseOfError};
 	if ($File->{localFilesystemPath} and $File->{localFilesystemPath} ne '.') {
 		$logger->info("moving file '".$File->{filename}."' into local dir ".$File->{localFilesystemPath});
 		move($File->{filename}, $File->{localFilesystemPath}."/".$File->{filename}) or do {
@@ -645,7 +642,7 @@ sub uploadFileToFTP ($) {
 	my $arg = shift;
 	my $logger = get_logger();
 	my ($FTP,$File,$process) = EAI::Common::extractConfigs("uploading files to FTP",$arg,"FTP","File","process");
-	return 1 if $process->{successfullyDone} and $process->{successfullyDone} =~ /uploadFileToFTP/;
+	return 1 if $process->{successfullyDone} and $process->{successfullyDone} =~ /uploadFileToFTP/ and $execute{retryBecauseOfError};
 	markForHistoryDelete($arg) unless ($FTP->{localDir});
 	if (defined($FTP->{remoteDir})) {
 		$logger->debug ("upload of file '".$File->{filename}."' using FTP");
@@ -666,7 +663,7 @@ sub uploadFileCMD ($) {
 	my $arg = shift;
 	my $logger = get_logger();
 	my ($FTP,$File,$process) = EAI::Common::extractConfigs("uploading files with CMD",$arg,"FTP","File","process");
-	return 1 if $process->{successfullyDone} and $process->{successfullyDone} =~ /uploadFileCMD/;
+	return 1 if $process->{successfullyDone} and $process->{successfullyDone} =~ /uploadFileCMD/ and $execute{retryBecauseOfError};
 	markForHistoryDelete($arg) unless ($FTP->{localDir});
 	if ($process->{uploadCMD}) {
 		$logger->debug ("upload of file '".$File->{filename}."' using uploadCMD ".$process->{uploadCMD});
@@ -829,6 +826,8 @@ sub processingEnd {
 			$logger->info("Retrying in ".$retrySeconds." seconds because of ".($execute{retryBecauseOfError} ? "occurred error" : "planned retry")." until ".$endTime.", next run: ".$nextStartTime);
 			sleep $retrySeconds;
 		}
+	} else {
+		$logger->info("------> finished $execute{scriptname}");
 	}
 }
 
@@ -901,24 +900,31 @@ EAI::Wrap - framework for easy creation of Enterprise Application Integration ta
 
 =head1 SYNOPSIS
 
+
     # site.config
     %config = (
     	sensitive => {
-    		myftp => {user => 'someone', pwd => 'password', privKey => 'pathToPrivateKey', hostkey => 'hostkey to be presented'},
-    		mydb => {user => 'someone', pwd => 'password'}
-    	},
+    			dbSys => {user => "DBuser", pwd => "DBPwd"},
+    			ftpSystem1 => {user => "FTPuser", pwd => "FTPPwd", privKey => 'path_to_private_key', hostkey =>'hostkey'},
+    		},
     	checkLookup => {"task_script.pl" => {errmailaddress => "test\@test.com", errmailsubject => "testjob failed", timeToCheck => "0800", freqToCheck => "B", logFileToCheck => "test.log", logcheck => "started.*"}},
+    	executeOnInit => sub {$execute{addToScriptName} = "doWhateverHereToModifySettings";},
     	folderEnvironmentMapping => {Test => "Test", Dev => "Dev", "" => "Prod"},
-    	errmailaddress => 'To@somewhere.com',
-    	errmailsubject => "errMailSubject",
-    	fromaddress => 'from@somewhere.com',
-    	smtpServer => "MailServer",
+    	errmailaddress => 'your@mail.address',
+    	errmailsubject => "No errMailSubject defined",
+    	fromaddress => 'service@mail.address',
+    	smtpServer => "a.mail.server",
     	smtpTimeout => 60,
-    	logRootPath => "C:/dev/EAI/Logs",
-    	historyFolder => "History",
-    	redoDir => "redo",
+    	testerrmailaddress => 'your@mail.address',
+    	logRootPath => {"" => "C:/dev/EAI/Logs",},
+    	historyFolder => {"" => "History",},
+    	historyFolderUpload => "HistoryUpload",
+    	redoDir => {"" => "redo",},
     	task => {
+    		redoTimestampPatternPart => '[\d_]',
     		retrySecondsErr => 60*5,
+    		retrySecondsErrAfterXfails => 60*10,
+    		retrySecondsXfails => 2,
     		retrySecondsPlanned => 60*15,
     	},
     	DB => {
@@ -928,10 +934,14 @@ EAI::Wrap - framework for easy creation of Enterprise Application Integration ta
     		schemaName => "dbo",
     	},
     	FTP => {
-    		maxConnectionTries => 5, 
-    		plinkInstallationPath => "C:/dev/EAI/putty/PLINK.EXE",
+    		lookups => {
+    			ftpSystem1 => {remoteHost => {Test => "TestHost", Prod => "ProdHost"}, port => 5022},
+    		}
+    		maxConnectionTries => 5,
+    		sshInstallationPath => "C:/dev/EAI/putty/PLINK.EXE",
     	},
     	File => {
+    		format_defaultsep => "\t",
     		format_thousandsep => ",",
     		format_decimalsep => ".",
     	}
@@ -998,7 +1008,7 @@ EAI::Wrap - framework for easy creation of Enterprise Application Integration ta
 EAI::Wrap provides a framework for defining EAI jobs directly in Perl, sparing the creator of low-level tasks as FTP-Fetching, file-parsing and storing into a database.
 It also can be used to handle other workflows, like creating files from the database and uploading to FTP-Servers or using other externally provided tools.
 
-The definition is done by first setting up configuration hashes and then providing a high-level scripting of the job itself using the provided API (although any perl code is welcome here!).
+The definition is done by first setting up datastructures for configurations and then providing a high-level scripting of the job itself using the provided subs (although any perl code is welcome here!).
 
 EAI::Wrap has a lot of infrastructure already included, like logging using Log4perl, database handling with L<DBI> and L<DBD::ODBC>, FTP services using L<Net::SFTP::Foreign>, file parsing using L<Text::CSV> (text files), L<Data::XLSX::Parser> and L<Spreadsheet::ParseExcel> (excel files), L<XML::LibXML> (xml files), file writing with L<Spreadsheet::WriteExcel> and L<Excel::Writer::XLSX> (excel files), L<Text::CSV> (text files).
 
@@ -1007,8 +1017,13 @@ Commandline options (e.g. additional information passed on with the interactive 
 
 Also the logging configured in C<$ENV{EAI_WRAP_CONFIG_PATH}/log.config> (logfile root path set in C<$ENV{EAI_WRAP_CONFIG_PATH}/site.config>) starts immediately at INIT of the task script, to use a logger, simply make a call to get_logger(). For the logging configuration, see L<EAI::Common>, setupLogging.
 
+There are two accompanying scripts:
 
-=head2 API
+L<setDebugLevel.pl> to easily modify the configured log-levels of the task-script itself and all EAI-Wrap modules.
+
+L<checkLogExist.pl> to run checks on the produced logs (at given times using a cron-job or other scheduler) for their existence and certain (starting/finishing) entries, giving error notifications if the check failed.
+
+=head2 API: datastructures for configurations
 
 =over 4
 
@@ -1055,6 +1070,8 @@ In order to use C<--load1process interactive_date=202300101>, you would use C<$l
 
 The merge inheritance for L<DB|/DB>, L<FTP|/FTP>, L<File|/File> and L<task|/task> can be prevented by using an underscore after the hashkey, ie. C<DB_>, C<FTP_>, C<File_> and C<task_>. In this case the parameters are not merged from C<common>. However, they are always inherited from C<config>.
 
+A special merge is done for configurations defined in hash C<lookups>, which may appear in all five categories (sub-hashes) of the top-level configuration C<%config>. This uses the prefix defined in the task script's C<%common> configuration to get generally defined settings for this specific prefix. As an example, common remoteHosts or ports for FTP can be defined here. These settings also allow an environment dependent hash, like C<{Test =E<gt> "TestHost", Prod =E<gt> "ProdHost"}>.
+
 =item %execute
 
 hash of parameters for current task execution which is not set by the user but can be used to set other parameters and control the flow. Most important here are C<$execute{env}>, giving the current used environment (Prod, Test, Dev, whatever), C<$execute{envraw}> (Production is empty here), the several file lists (files being procesed, files for deletion/moving, etc.), flags for ending/interrupting processing and directory locations as home and history
@@ -1069,13 +1086,25 @@ L<checkFiles|/checkFiles> is always run, regardless of C<$process{successfullyDo
 
 After the first successful run of the task, C<$execute{firstRunSuccess}> is set to prevent any error messages resulting of files having been moved/removed while rerunning the task until the defined planned time (C<task =E<gt> {plannedUntil =E<gt> "HHMM"}>) has been reached.
 
-=item INIT
+=item initialization
 
-The INIT procedure is executed at the EAI::Wrap module initialization (when EAI::Wrap is used in the task script) and loads the site configuration, starts logging and reads commandline options. This means that everything passed to the script via command line may be used in the definitions, especially the C<task{interactive.*}> parameters, here the name and the type of the parameter are not checked by the consistency checks (all other parameters not allowed or having the wrong type would throw an error).
+The INIT procedure is executed at the task script initialization (when EAI::Wrap is used in the task script) and loads the site configuration, starts logging and reads commandline options. This means that everything passed to the script via command line may be used in the definitions, especially the C<task{interactive.*}> parameters, here the name and the type of the parameter are not checked by the consistency checks (all other parameters not allowed or having the wrong type would throw an error). The task scripts configuration itself is then read with setupEAIWrap(), which is usually called immediately after the datastructures for configurations have been finished.
+
+=back
+
+=head2 API: High-level subs
+
+Following are the high level subs that can be called for a standard workflow. Most of them accumulate their sub names to prevent any further call in a faulting loop, when they alrady ran successfully.
+
+=over 4
+
+=item setupEAIWrap
+
+setupEAIWrap is actually imported from L<EAI::Common>, but as it is usually called as the first sub, it is mentioned here as well. This sub sets up the configuration datastructure and merges the hierarchy of configurations, more information in L<EAI::Common::setupEAIWrap|EAI::Common/setupEAIWrap>.
 
 =item removeFilesinFolderOlderX
 
-remove files on FTP server being older than a time back (given in day/mon/year in C<remove =E<gt> {removeFolders =E<gt> ["",""], day=E<gt>, mon=E<gt>, year=E<gt>1}>), see L<EAI::FTP::removeFilesOlderX|EAI::FTP/removeFilesOlderX>
+Usually done for clearing FTP archives, this removes files on FTP server being older than a time back (given in day/mon/year in C<remove =E<gt> {removeFolders =E<gt> ["",""], day=E<gt>, mon=E<gt>, year=E<gt>1}>), see L<EAI::FTP::removeFilesOlderX|EAI::FTP/removeFilesOlderX> (always runs in a faulting loop)
 
 =item openDBConn ($)
 
@@ -1097,7 +1126,7 @@ If the remoteHost information is not found in C<$FTP> then a system wide remoteH
 
 argument $arg (ref to current load or common)
 
-redo file from redo directory if specified (C<$common{task}{redoFile}> is being set), this is also being called by getLocalFiles and getFilesFromFTP. Arguments are fetched from common or loads[i], using File parameter.
+redo file from redo directory if specified (C<$common{task}{redoFile}> is being set), this is also being called by getLocalFiles and getFilesFromFTP. Arguments are fetched from common or loads[i], using File parameter. (always runs in a faulting loop when called directly)
 
 =item getLocalFiles ($)
 
@@ -1123,7 +1152,7 @@ All get<*Files*> functions also parse the file into the datastructure process{da
 
 argument $arg (ref to current load or common)
 
-check files for continuation of processing and extract archives if needed. Arguments are fetched from common or loads[i], using File parameter. The processed files are put into process->{filenames}
+check files for continuation of processing and extract archives if needed. Arguments are fetched from common or loads[i], using File parameter. The processed files are put into process->{filenames} (always runs in a faulting loop).
 
 =item extractArchives ($)
 
@@ -1153,7 +1182,7 @@ store data into Database. Arguments are fetched from common or loads[i], using D
 
 argument $arg (ref to current load or common)
 
-mark files as being processed depending on whether there were errors, also decide on removal/archiving of downloaded files. Arguments are fetched from common or loads[i], using File parameter.
+mark files as being processed depending on whether there were errors, also decide on removal/archiving of downloaded files. Arguments are fetched from common or loads[i], using File parameter. (always runs in a faulting loop)
 
 =item writeFileFromDB ($)
 
@@ -1171,7 +1200,7 @@ put files into local folder if required. Arguments are fetched from common or lo
 
 argument $arg (ref to current load or common)
 
-mark to be removed or be moved to history after upload. Arguments are fetched from common or loads[i], using File parameter.
+mark to be removed or be moved to history after upload. Arguments are fetched from common or loads[i], using File parameter. (always runs in a faulting loop)
 
 =item uploadFileToFTP ($)
 
@@ -1193,7 +1222,7 @@ combines above two procedures in a general procedure to upload files via FTP or 
 
 =item processingEnd
 
-final processing steps for processEnd (cleanup, FTP removal/archiving) or retry after pausing. No context argument as this always depends on all loads and/or the common definition
+final processing steps for processEnd (cleanup, FTP removal/archiving) or retry after pausing. No context argument as this always depends on all loads and/or the common definition (always runs in a faulting loop)
 
 =item processingPause ($)
 
@@ -1485,6 +1514,10 @@ used for readFromDBHash, list of field names to be used as the keys of the retur
 
 used for setting database handles LongReadLen parameter for DB connection, if not set defaults to 1024
 
+=item lookups
+
+similar to $config{sensitive}, a hash lookup table ({"prefix" => {remoteHost=>""},...} or {"prefix" => {remoteHost=>{Prod => "", Test => ""}},...}) for centrally looking up DSN Settings depending on $DB{prefix}. Overrides $DB{DSN} set in config, but is overriden by script-level settings in %common.
+
 =item noDBTransaction
 
 don't use a DB transaction for dumpDataIntoDB
@@ -1729,6 +1762,22 @@ FTP specific configs
 
 =over 4
 
+=item additionalParamsGet
+
+additional parameters for Net::SFTP::Foreign get.
+
+=item additionalMoreArgs
+
+additional more args for Net::SFTP::Foreign new (args passed to ssh command).
+
+=item additionalParamsNew
+
+additional parameters for Net::SFTP::Foreign new.
+
+=item additionalParamsPut
+
+additional parameters for Net::SFTP::Foreign put.
+
 =item archiveDir
 
 folder for archived files on the FTP server
@@ -1773,6 +1822,10 @@ hostkey to present to the server for Net::SFTP::Foreign, either directly (insecu
 
 optional: local folder for files to be placed, if not given files are downloaded into current folder
 
+=item lookups
+
+similar to $config{sensitive}, a hash lookup table ({"prefix" => {remoteHost=>""},...} or {"prefix" => {remoteHost=>{Prod => "", Test => ""}},...}) for centrally looking up remoteHost and port settings depending on $FTP{prefix}.
+
 =item maxConnectionTries
 
 maximum number of tries for connecting in login procedure
@@ -1791,11 +1844,11 @@ additional relative FTP path (under remoteDir which is set at login), where the 
 
 =item port
 
-ftp/sftp port (leave empty for default port 22)
+ftp/sftp port (leave empty for default port 22 when using Net::SFTP::Foreign, or port 21 when using Net::FTP)
 
 =item prefix
 
-key for sensitive information (e.g. pwd and user) in config{sensitive} or system wide remoteHost in config{FTP}{prefix}{remoteHost}. respects environment in $execute{env} if configured.
+key for sensitive information (e.g. pwd and user) in config{sensitive} or system wide remoteHost/port in config{FTP}{prefix}{remoteHost} or config{FTP}{prefix}{port}. respects environment in $execute{env} if configured.
 
 =item privKey
 
@@ -1835,7 +1888,7 @@ path were ssh/plink exe to be used by Net::SFTP::Foreign is located
 
 =item type
 
-(A)scii or (B)inary
+(A)scii or (B)inary, only applies to Net::FTP
 
 =item user
 

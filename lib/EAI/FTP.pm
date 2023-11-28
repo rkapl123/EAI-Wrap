@@ -1,4 +1,4 @@
-package EAI::FTP 1.902;
+package EAI::FTP 1.903;
 
 use strict; use feature 'unicode_strings'; use warnings;
 use Exporter qw(import); use Net::SFTP::Foreign (); use Net::SFTP::Foreign::Constants qw( SFTP_ERR_LOCAL_UTIME_FAILED ); use Net::FTP (); use Text::Glob qw(match_glob);
@@ -26,10 +26,10 @@ sub _error () {
 }
 
 # wrapper for getting file
-sub _get ($$;$) {
-	my ($remoteFile, $localFile,$queue_size) = @_;
+sub _get ($$;$$) {
+	my ($remoteFile, $localFile,$queue_size,$additionalParams) = @_;
 	if ($ftp->isa('Net::SFTP::Foreign')) {
-		return $ftp->get($remoteFile, $localFile, queue_size => $queue_size);
+		return $ftp->get($remoteFile, $localFile, queue_size => $queue_size, ($additionalParams ? %$additionalParams : ()));
 	} else {
 		return $ftp->get($remoteFile, $localFile);
 	}
@@ -204,7 +204,7 @@ sub fetchFiles ($$) {
 				@{$param->{retrievedFiles}} = @multipleFiles;
 				for (my $i = 0; $i < @multipleFiles; $i++) {
 					$logger->debug("fetching file ".$multipleRemoteFiles[$i]);
-					_get($multipleRemoteFiles[$i], $localPath.$multipleFiles[$i], $queue_size) or do {
+					_get($multipleRemoteFiles[$i], $localPath.$multipleFiles[$i], $queue_size, $FTP->{additionalParamsGet}) or do {
 						unless (_error() == SFTP_ERR_LOCAL_UTIME_FAILED) {
 							$logger->error("error: can't get remote-file ".$multipleRemoteFiles[$i]." from glob $remoteFile, reason: "._error().", status: "._status()) unless $suppressGetError;
 							@{$param->{retrievedFiles}} = ();
@@ -218,7 +218,7 @@ sub fetchFiles ($$) {
 				my $mod_time = _mtime($remoteFile);
 				$logger->debug("get file $remoteFile");
 				@{$param->{retrievedFiles}} = ($param->{fileToRetrieve});
-				_get($remoteFile, $localFile, $queue_size) or do { 
+				_get($remoteFile, $localFile, $queue_size, $FTP->{additionalParamsGet}) or do { 
 					unless (_error() == SFTP_ERR_LOCAL_UTIME_FAILED) {
 						if ($suppressGetError) {
 							no warnings 'uninitialized';
@@ -271,7 +271,7 @@ sub putFile ($$) {
 			for $localFile (@localFiles) {
 				if ($FTP->{dontUseTempFile}) {
 					$logger->info("uploading file $localFile \$doSetStat: $doSetStat");
-					if (!_put($localFile, $doSetStat, $FTP->{additionalParams})) {
+					if (!_put($localFile, $doSetStat, $FTP->{additionalParamsPut})) {
 						$logger->error("can't upload local file $localFile to remote dir $FTP->{remoteDir}, reason: "._error());
 						return 0;
 					}
@@ -280,7 +280,7 @@ sub putFile ($$) {
 					# first rename to temp... locally
 					rename $localFile, "temp.".$localFile or $logger->error("can't rename local file $localFile to temp.$localFile, reason: $!") ;
 					$logger->info("uploading file temp.$localFile, \$doSetStat: $doSetStat");
-					if (!_put("temp.$localFile", $doSetStat, $FTP->{additionalParams})) {
+					if (!_put("temp.$localFile", $doSetStat, $FTP->{additionalParamsPut})) {
 						$logger->error("error: can't upload local file temp.$localFile to ${remoteDir}/temp.$localFile, reason: "._error());
 						return 0;
 					}
@@ -469,13 +469,20 @@ sub login ($$) {
 			$logger->error("neither \$FTP->{pwd} nor \$FTP->{privKey} defined!");
 			return 0;
 		}
+		if ($FTP->{additionalParamsNew} and ref($FTP->{additionalParamsNew}) ne "HASH") {
+			$logger->error("\$FTP->{additionalParamsNew} is not ref to hash");
+			return 0;
+		}
+		if ($FTP->{additionalMoreArgs} and ref($FTP->{additionalMoreArgs}) ne "ARRAY") {
+			$logger->error("\$FTP->{additionalMoreArgs} is not ref to array");
+			return 0;
+		}
 		$logger->info("connecting to $RemoteHost using SSH FTP");
 		my @moreparams;
 		push @moreparams, ("-hostkey", $FTP->{hostkey}) if $FTP->{hostkey};
 		push @moreparams, ("-i", $FTP->{privKey}) if $FTP->{privKey};
 		push @moreparams, ("-v", "") if $debugLevel;
-		push @moreparams, @{$FTP->{moreparams}} if $FTP->{moreparams} and ref($FTP->{moreparams}) eq "ARRAY";
-		push @moreparams, %{$FTP->{moreparams}} if $FTP->{moreparams} and ref($FTP->{moreparams}) eq "HASH";
+		push @moreparams, @{$FTP->{additionalMoreArgs}} if $FTP->{additionalMoreArgs};
 		do {
 			$logger->debug("connection try: $connectionTries");
 			my $ssherr = File::Temp::tempfile() or $logger->error("couldn't open temp file for ftperrlog");
@@ -489,7 +496,8 @@ sub login ($$) {
 				port => ($FTP->{port} ? $FTP->{port} : '22'),
 				ssh_cmd => $FTP->{sshInstallationPath},
 				more => \@moreparams,
-				stderr_fh => $ssherr
+				stderr_fh => $ssherr,
+				($FTP->{additionalParamsNew} ? %{$FTP->{additionalParamsNew}} : ())
 			);
 			$connectionTries++;
 			$ftp->error and do {
@@ -535,7 +543,7 @@ sub login ($$) {
 			undef $ftp;
 			return 0;
 		}
-		if (defined($FTP->{translationtype}) and $FTP->{translationtype} eq "A") {
+		if (defined($FTP->{type}) and $FTP->{type} eq "A") {
 			if (!$$ftp->ascii()) {
 				$logger->error("can't switch to ascii, reason: ".$ftp->message);
 				undef $ftp;
