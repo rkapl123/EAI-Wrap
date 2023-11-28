@@ -150,9 +150,9 @@ sub openFTPConn ($;$) {
 		$logger->error("ftp user neither set in \$FTP->{user} nor in \$config{sensitive}{".$FTP->{prefix}."}{user} !");
 		return 0;
 	};
+	no warnings 'uninitialized';
 	$logger->debug("\$FTP->{user}:$FTP->{user}, \$FTP->{privKey}:$FTP->{privKey}, \$FTP->{hostkey}:$FTP->{hostkey}");
 	EAI::FTP::login($FTP,$hostname) or do {
-		no warnings 'uninitialized';
 		$logger->error("couldn't open ftp connection for $hostname");
 		return 0; # false means error in connection and signal to die...
 	};
@@ -936,7 +936,7 @@ EAI::Wrap - framework for easy creation of Enterprise Application Integration ta
     	FTP => {
     		lookups => {
     			ftpSystem1 => {remoteHost => {Test => "TestHost", Prod => "ProdHost"}, port => 5022},
-    		}
+    		},
     		maxConnectionTries => 5,
     		sshInstallationPath => "C:/dev/EAI/putty/PLINK.EXE",
     	},
