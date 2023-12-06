@@ -1,4 +1,4 @@
-package EAI::Common 1.903;
+package EAI::Common 1.904;
 
 use strict; use feature 'unicode_strings'; use warnings; no warnings 'uninitialized';
 use Exporter qw(import); use EAI::DateUtil; use Data::Dumper qw(Dumper); use Getopt::Long qw(:config no_ignore_case); use Log::Log4perl qw(get_logger); use MIME::Lite (); use Scalar::Util qw(looks_like_number);
@@ -25,7 +25,7 @@ my %hashCheck = (
 		executeOnInit => "", # code to be executed during INIT of EAI::Wrap to allow for assignment of config/execute parameters from commandline params BEFORE Logging!
 		folderEnvironmentMapping => {}, # ref to hash {Test => "Test", Dev => "Dev", "" => "Prod"}, mapping for $execute{envraw} to $execute{env}
 		fromaddress => "", # from address for central logcheck/errmail sending, also used as default sender address for sendGeneralMail
-		historyFolder => {}, # ref to hash {"scriptname.pl + optional addToScriptName" => "folder"}, folders where downloaded files are historized, lookup key as in checkLookup, default in "" => "defaultfolder"
+		historyFolder => {}, # ref to hash {"scriptname.pl + optional addToScriptName" => "folder"}, folders where downloaded files are historized, lookup key as in checkLookup, default in "" => "defaultfolder". historyFolder, historyFolderUpload, logRootPath and redoDir are always built with an environment subfolder, the default is built as folderPath/endFolder/environ, otherwise it is built as folderPath/environ/endFolder. Environment subfolders (environ) are also built depending on prodEnvironmentInSeparatePath: either folderPath/endFolder/$execute{env} (prodEnvironmentInSeparatePath = true, Prod has own subfolder) or folderPath/endFolder/$execute{envraw} (prodEnvironmentInSeparatePath = false, Prod is in common folder, other environments have their own folder)
 		historyFolderUpload => {}, # ref to hash {"scriptname.pl + optional addToScriptName" => "folder"}, folders where uploaded files are historized, lookup key as in checkLookup, default in "" => "defaultfolder"
 		logCheckHoliday => "", # calendar for business days in central logcheck/errmail sending. builtin calendars are AT (Austria), TG (Target), UK (United Kingdom) and WE (for only weekends). Calendars can be added with EAI::DateUtil::addCalendar
 		logs_to_be_ignored_in_nonprod => qr//, # regular expression to specify logs to be ignored in central logcheck/errmail sending
@@ -166,10 +166,11 @@ my %hashCheck = (
 		dontDoUtime => 1, # don't set time stamp of local file to that of remote file
 		dontUseQuoteSystemForPwd => 0, # for windows, a special quoting is used for passing passwords to Net::SFTP::Foreign that contain [()"<>& . This flag can be used to disable this quoting.
 		dontUseTempFile => 1, # directly upload files, without temp files
-		fileToArchive => 1, # should file be archived on FTP server? requires archiveDir to be set
+		fileToArchive => 1, # should file be archived on FTP server? if archiveDir is not set, then file is archived (rolled) in the same folder
 		fileToRemove => 1, # should file be removed on FTP server?
 		FTPdebugLevel => 0, # debug ftp: 0 or ~(1|2|4|8|16|1024|2048), loglevel automatically set to debug for module EAI::FTP
 		hostkey => "", # hostkey to present to the server for Net::SFTP::Foreign, either directly (insecure -> visible) or via sensitive lookup
+		hostkey2 => "", # additional hostkey to be presented (e.g. in case of round robin DNS)
 		localDir => "", # optional: local folder for files to be placed, if not given files are downloaded into current folder
 		lookups => {}, # similar to $config{sensitive}, a hash lookup table ({"prefix" => {remoteHost=>""},...} or {"prefix" => {remoteHost=>{Prod => "", Test => ""}},...}) for centrally looking up remoteHost and port settings depending on $FTP{prefix}.
 		maxConnectionTries => 5, # maximum number of tries for connecting in login procedure
@@ -253,9 +254,8 @@ sub readConfigFile ($) {
 		close CONFIGFILE;
 	}
 	unless (my $return = eval $siteCONFIGFILE) {
-		die("Error parsing config file $configfilename: $@") if $@;
-		die("Error executing config file $configfilename: $!") unless defined $return;
-		die("Error executing config file $configfilename") unless $return;
+		die("Error parsing config file $configfilename for script $execute{homedir}/$execute{scriptname}: $@") if $@;
+		die("Error executing config file $configfilename for script $execute{homedir}/$execute{scriptname}: $!") unless defined $return;
 	}
 	print STDOUT "read $configfilename\n";
 }
@@ -485,6 +485,8 @@ sub setErrSubject ($) {
 
 # setup logging for Log4perl
 sub setupLogging {
+	my $prodEnvironmentInSeparatePath = ($config{checkLookup}{$execute{scriptname}.$execute{addToScriptName}}{prodEnvironmentInSeparatePath} ne "" ? $config{checkLookup}{$execute{scriptname}.$execute{addToScriptName}}{prodEnvironmentInSeparatePath} : $config{prodEnvironmentInSeparatePath});
+
 	# get logRootPath, historyFolder, historyFolderUpload and redoDir from lookups in config.
 	# if they are not in the script home directory (having an absolute path) then build environment-path separately for end folder (script home directory is already in its environment)
 	for my $foldKey ("redoDir","logRootPath","historyFolder","historyFolderUpload") {
@@ -500,9 +502,17 @@ sub setupLogging {
 		$folder =~ s/\\/\//g;
 		if ($folder =~ /^(\S:)*\/(.*?)$/ and !$opt{config}{$foldKey}) {
 			my ($folderPath,$endFolder) = ($folder =~ /(.*)\/(.*?)$/); # slash acts as path separator for last part
-			# default Folder is built differently: folderPath/endFolder/environ instead of folderPath/environ/endFolder
-			$execute{$foldKey} = ($defaultFolder ? $folderPath."/".$endFolder.($execute{envraw} ? "/".$execute{envraw} : "") : $folderPath.($execute{envraw} ? "/".$execute{envraw} : "")."/".$endFolder);
+			# default Folder is built with environment: folderPath/endFolder/environ instead of folderPath/environ/endFolder
+			# environments are built depending on prodEnvironmentInSeparatePath: either folderPath/endFolder/$execute{env} (Prod has own subfolder) or folderPath/endFolder/$execute{envraw} (Prod is in common folder, other environments have their own folder)
+			$execute{$foldKey} = ($defaultFolder 
+									? $folderPath."/".$endFolder.($prodEnvironmentInSeparatePath 
+										? '/'.$execute{env}
+										: ($execute{envraw} ? '/'.$execute{envraw} : ""))
+									: $folderPath."/".($prodEnvironmentInSeparatePath 
+										? '/'.$execute{env}
+										: ($execute{envraw} ? '/'.$execute{envraw} : "")).$endFolder);
 		} else {
+			# folders without slashes are assumed to be relative to home, so now amendment with environment needed.
 			$execute{$foldKey} = $folder;
 		}
 	}
@@ -525,8 +535,8 @@ sub setupLogging {
 		Log::Log4perl->appenders()->{"FILE"}->{"appender"}->{"fh"}->autoflush;
 	}
 	if ($config{smtpServer}) {
-		# remove explicitly enumerated lookups (1:scriptname.pl, 2:scriptname.pl)
-		for my $lookupKey (keys(%{$config{checkLookup}})) {
+		# remove explicitly enumerated lookups (1:scriptname.pl, 2:scriptname.pl), the first such entry will be taken here
+		for my $lookupKey (reverse sort keys(%{$config{checkLookup}})) {
 			if ($lookupKey =~ /^\d:.*/) {
 				my $lookupKeyAdd = $lookupKey;
 				$lookupKeyAdd =~ s/^\d://;

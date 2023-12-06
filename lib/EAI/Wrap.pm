@@ -1,4 +1,4 @@
-package EAI::Wrap 1.903;
+package EAI::Wrap 1.904;
 
 use strict; use feature 'unicode_strings'; use warnings;
 use Exporter qw(import); use Data::Dumper qw(Dumper); use File::Copy qw(copy move); use Cwd qw(chdir); use Archive::Extract ();
@@ -105,19 +105,23 @@ sub openDBConn ($;$) {
 	}
 	unless ($DSNeval) {
 		$logger->error("no DSN available in \$DB->{DSN}");
+		$process->{hadErrors} = 1;
 		return 0;
 	}
 	(!$DB->{user} && $DSNeval =~ /\$DB->\{user\}/) and do {
 		$logger->error("specified DSN ('".$DSNeval."') contains \$DB->{user}, which is neither set in \$DB->{user} nor in \$config{sensitive}{".$DB->{prefix}."}{user} !");
+		$process->{hadErrors} = 1;
 		return 0;
 	};
 	$newDSN = eval qq{"$DSNeval"};
 	if (!$newDSN) {
 		$logger->error("error parsing \$DB->{DSN}(".$DSNeval."), couldn't interpolate all values:".$@);
+		$process->{hadErrors} = 1;
 		return 0;
 	}
 	EAI::DB::newDBH($DB,$newDSN) or do {
 		$logger->error("couldn't open database connection for $newDSN");
+		$process->{hadErrors} = 1;
 		return 0; # false means error in connection and signal to die...
 	};
 	$process->{successfullyDone}.="openDBConn".$DSNeval;
@@ -134,8 +138,6 @@ sub openFTPConn ($;$) {
 	$hostname = $FTP->{remoteHost}{$execute{env}} if ref($FTP->{remoteHost}) eq "HASH";
 	if ($enforceConn) {
 		$logger->info("enforced FTP reconnect");
-		# close connection to reopen when enforced connect
-		$EAI::FTP::RemoteHost = "";
 	} else {
 		return 1 if $process->{successfullyDone} and $process->{successfullyDone} =~ /\QopenFTPConn$hostname/ and $execute{retryBecauseOfError};
 	}
@@ -144,16 +146,19 @@ sub openFTPConn ($;$) {
 		$FTP->{user} = EAI::Common::getSensInfo($FTP->{prefix},"user");
 		$FTP->{pwd} = EAI::Common::getSensInfo($FTP->{prefix},"pwd");
 		$FTP->{hostkey} = EAI::Common::getSensInfo($FTP->{prefix},"hostkey");
+		$FTP->{hostkey2} = EAI::Common::getSensInfo($FTP->{prefix},"hostkey2");
 		$FTP->{privKey} = EAI::Common::getSensInfo($FTP->{prefix},"privKey");
 	}
 	(!$FTP->{user}) and do {
 		$logger->error("ftp user neither set in \$FTP->{user} nor in \$config{sensitive}{".$FTP->{prefix}."}{user} !");
+		$process->{hadErrors} = 1;
 		return 0;
 	};
 	no warnings 'uninitialized';
 	$logger->debug("\$FTP->{user}:$FTP->{user}, \$FTP->{privKey}:$FTP->{privKey}, \$FTP->{hostkey}:$FTP->{hostkey}");
-	EAI::FTP::login($FTP,$hostname) or do {
+	EAI::FTP::login($FTP,$hostname,$enforceConn) or do {
 		$logger->error("couldn't open ftp connection for $hostname");
+		$process->{hadErrors} = 1;
 		return 0; # false means error in connection and signal to die...
 	};
 	$process->{successfullyDone}.="openFTPConn".$hostname;
@@ -234,6 +239,7 @@ sub getLocalFiles ($) {
 					chdir($execute{homedir});
 				} else {
 					$logger->error("couldn't change into folder ".$localFilesystemPath." !");
+					$process->{hadErrors} = 1;
 					return 0;
 				}
 			} else {
@@ -247,6 +253,7 @@ sub getLocalFiles ($) {
 					copy ($localFilesystemPath.$localfile, ".") or do {
 						$logger->error("couldn't copy ".$localFilesystemPath.$localfile.": $!");
 						@{$execute{retrievedFiles}} = ();
+						$process->{hadErrors} = 1;
 						return 0;
 					};
 				} else {
@@ -256,6 +263,7 @@ sub getLocalFiles ($) {
 		}
 	} else {
 		$logger->error("no \$File->{localFilesystemPath} parameter given");
+		$process->{hadErrors} = 1;
 		return 0;
 	}
 	$process->{successfullyDone}.="getLocalFiles";
@@ -277,11 +285,13 @@ sub getFilesFromFTP ($) {
 				return EAI::FTP::fetchFiles($FTP,{firstRunSuccess=>$execute{firstRunSuccess},homedir=>$execute{homedir},fileToRetrieve=>$File->{filename},fileToRetrieveOptional=>$File->{optional},retrievedFiles=>$execute{retrievedFiles}});
 			} else {
 				$logger->error("no \$File->{filename} given, can't get it from FTP");
+				$process->{hadErrors} = 1;
 				return 0;
 			}
 		}
 	} else {
 		$logger->error("no \$FTP->{remoteDir} parameter defined");
+		$process->{hadErrors} = 1;
 		return 0;
 	}
 	$process->{successfullyDone}.="getFilesFromFTP";
@@ -340,10 +350,11 @@ sub checkFiles ($) {
 	# extract from files if needed
 	if ($File->{extract}) {
 		if (@{$execute{retrievedFiles}} == 1) {
-			$logger->info("file checked, extracting archives");
+			$logger->info("file to be extracted exists, now extracting archive");
 			return extractArchives($arg);
 		} else {
-			$logger->error("multiple files returned (glob passed as filename), extracting not supported in this case");
+			$logger->error("multiple files returned (probably glob passed as filename), extracting not supported in this case");
+			$process->{hadErrors} = 1;
 			return 0;
 		}
 	}
@@ -361,30 +372,35 @@ sub extractArchives ($) {
 	return 1 if $process->{successfullyDone} and $process->{successfullyDone}  =~ /extractArchives/ and $execute{retryBecauseOfError};
 	my $redoDir = ($common{task}{redoFile} ? $execute{redoDir}."/" : "");
 	if ($execute{retrievedFiles}) { 
-		for my $filename (@{$execute{retrievedFiles}}) {
-			if (! -e $redoDir.$filename) {
-				$logger->error($redoDir.$filename." doesn't exist for extraction");
-				next;
-			}
-			$logger->info("extracting file(s) from archive package: $redoDir$filename");
-			local $SIG{__WARN__} = sub { $logger->error("opening archive: ".$_[0]); };
-			my $ae;
-			eval {
-				$ae = Archive::Extract->new(archive => $redoDir.$filename);
-			};
-			return 0 unless $ae;
-			if (!$ae->extract(to => ($redoDir ? $redoDir : "."))) {
-				$logger->error("extracting files: ".$ae->error()); 
-				return 0;
-			}
-			$logger->info("extracted files: @{$ae->files}");
-			push @{$process->{filenames}}, @{$ae->files};
-			push @{$process->{archivefilenames}}, $filename; # archive itself needs to be removed/historized
+		my $filename = $execute{retrievedFiles}[0]; # only one file expected.
+		if (! -e $redoDir.$filename) {
+			$logger->error($redoDir.$filename." doesn't exist for extraction");
+			$process->{hadErrors} = 1;
+			return 0;
 		}
+		$logger->info("extracting file(s) from archive package: $redoDir$filename");
+		local $SIG{__WARN__} = sub { $logger->error("opening archive: ".$_[0]); }; # capturing warnings...
+		my $ae;
+		eval {
+			$ae = Archive::Extract->new(archive => $redoDir.$filename);
+		};
+		unless ($ae) {
+			$process->{hadErrors} = 1;
+			return 0;
+		}
+		if (!$ae->extract(to => ($redoDir ? $redoDir : "."))) {
+			$logger->error("extracting files: ".$ae->error());
+			$process->{hadErrors} = 1;
+			return 0;
+		}
+		$logger->info("extracted files: @{$ae->files}");
+		push @{$process->{filenames}}, @{$ae->files};
+		push @{$process->{archivefilenames}}, $filename; # archive itself needs to be removed/historized
 		# reset retrievedFiles to get rid of fetched archives (not to be processed further)
 		@{$execute{retrievedFiles}} = ();
 	} else {
 		$logger->error("no files available to extract..");
+		$process->{hadErrors} = 1;
 		return 0;
 	}
 	$process->{successfullyDone}.="extractArchives";
@@ -527,7 +543,7 @@ sub dumpDataIntoDB ($) {
 		}
 	}
 	$process->{successfullyDone}.="dumpDataIntoDB" if !$hadDBErrors;
-	$process->{hadErrors} = $hadDBErrors;
+	$process->{hadErrors} = $hadDBErrors if $hadDBErrors;
 	return $hadDBErrors;
 }
 
@@ -583,6 +599,7 @@ sub writeFileFromDB ($) {
 	@{$process->{data}} = (); # reset data to pass data back as reference
 	EAI::DB::readFromDB($DB,\@{$process->{data}}) or do {
 		$logger->error("couldn' read from DB");
+		$process->{hadErrors} = 1;
 		return 0;
 	};
 	# pass column information from database, if not explicitly set
@@ -594,6 +611,7 @@ sub writeFileFromDB ($) {
 	}
 	EAI::File::writeText($File,\@{$process->{data}}) or do {
 		$logger->error("error creating/writing file");
+		$process->{hadErrors} = 1;
 		return 0;
 	};
 	$process->{successfullyDone}.="writeFileFromDB";
@@ -717,17 +735,17 @@ sub uploadFile ($) {
 	}
 }
 
+my $retrySeconds; # seconds to wait for next retry, can change depending on settings (plannedUntil, errors, etc.)
 my (%filesToRemove, %filesToArchive); # hash to collect this only once
 # final processing steps for processEnd (cleanup, FTP removal/archiving) or retry after pausing. No context argument as it always depends on all loads/common
 sub processingEnd {
 	my $logger = get_logger();
 	my $processFailed;
 	# incremental checking for errors in processes
-	$processFailed = ($common{process}{hadErrors} ? 1 : 0) if ($common{process}{filenames} and !@loads);
+	$processFailed = ($common{process}{hadErrors} ? 1 : 0) unless @loads;
 	$processFailed += ($_->{process}{hadErrors} ? 1 : 0) for @loads;
-	$execute{processEnd} = ($processFailed ? 0 : 1); # can't use ! or not as it undefs all "true" values and this will fail the type check then
-	$logger->debug("processingEnd: \$execute{processEnd}: $execute{processEnd}");
-	if ($execute{processEnd}) {
+	$logger->debug("processingEnd: \$processFailed: $processFailed");
+	unless ($processFailed) {
 		# archiving/removing on the FTP server only if not a local redo
 		if (!$common{task}{redoFile}) {
 			EAI::Common::setErrSubject("FTP archiving/removal");
@@ -739,10 +757,10 @@ sub processingEnd {
 					$filesToRemove{$_} = 1 if $common{FTP}{fileToRemove} and ($common{process}{filesProcessed}{$_} or $common{FTP}{onlyArchive});
 					$filesToArchive{$_} = 1 if $common{FTP}{fileToArchive} and ($common{process}{filesProcessed}{$_} or $common{FTP}{onlyArchive});
 				}
-				@filesToArchive = keys(%filesToRemove); @filesToRemove = keys(%filesToRemove);
+				@filesToArchive = keys(%filesToArchive); @filesToRemove = keys(%filesToRemove);
 				if (@filesToArchive or @filesToRemove) {
 					openFTPConn(\%common);
-					$logger->info("file cleanup: ".(@filesToArchive ? "archiving @filesToArchive" : "").(@filesToRemove ? "removing @filesToRemove" : "")." on FTP Server...");
+					$logger->info("file cleanup: ".(@filesToArchive ? "\narchiving @filesToArchive" : "").(@filesToRemove ? "\nremoving @filesToRemove" : "")." on FTP Server...");
 					EAI::FTP::archiveFiles ({filesToArchive => \@filesToArchive, archiveDir => $common{FTP}{archiveDir}, remoteDir => $common{FTP}{remoteDir}, timestamp => $common{task}{customHistoryTimestamp}}) if @filesToArchive;
 					EAI::FTP::removeFiles ({filesToRemove => \@filesToRemove, remoteDir => $common{FTP}{remoteDir}}) if @filesToRemove;
 				}
@@ -756,7 +774,7 @@ sub processingEnd {
 					@filesToArchive = keys(%filesToArchive); @filesToRemove = keys(%filesToRemove);
 					if (@filesToArchive or @filesToRemove) {
 						openFTPConn($load);
-						$logger->info("file cleanup: ".(@filesToArchive ? "archiving @filesToArchive, " : "").(@filesToRemove ? "removing @filesToRemove" : "")." on FTP Server...");
+						$logger->info("file cleanup: ".(@filesToArchive ? "\narchiving @filesToArchive, " : "").(@filesToRemove ? "\nremoving @filesToRemove" : "")." on FTP Server...");
 						EAI::FTP::archiveFiles ({filesToArchive => \@filesToArchive, archiveDir => $load->{FTP}{archiveDir}, remoteDir => $load->{FTP}{remoteDir}, timestamp => $common{task}{customHistoryTimestamp}}) if @filesToArchive;
 						EAI::FTP::removeFiles ({filesToRemove => \@filesToRemove, remoteDir => $load->{FTP}{remoteDir}}) if @filesToRemove;
 					}
@@ -770,48 +788,50 @@ sub processingEnd {
 		deleteFiles($execute{filesToDelete}) if $execute{filesToDelete};
 		if ($common{task}{plannedUntil}) {
 			$execute{processEnd} = 0; # reset, if repetition is planned
-			$execute{retrySeconds} = $common{task}{retrySecondsPlanned};
+			$retrySeconds = $common{task}{retrySecondsPlanned};
+		} else {
+			$execute{processEnd} = 1;
 		}
 		if ($execute{retryBecauseOfError}) {
-			my @filesProcessed = keys %{$common{process}{filesProcessed}};
+			my @filesProcessed = sort keys %{$common{process}{filesProcessed}};
 			for my $load (@loads) {
-				push @filesProcessed, keys %{$load->{process}{filesProcessed}};
+				push @filesProcessed, sort keys %{$load->{process}{filesProcessed}};
 			}
 			# send success mail, if successful after first failure
-			EAI::Common::sendGeneralMail("", $config{errmailaddress},"","","Successful retry of $execute{scriptname} $execute{addToScriptName}!","@filesProcessed succesfully done on retry");
+			my $retryScript = $execute{scriptname}.(defined($execute{addToScriptName}) ? " ".$execute{addToScriptName} : "");
+			EAI::Common::sendGeneralMail("", $config{errmailaddress},"","","Successful retry of $retryScript","@filesProcessed succesfully done on retry");
 		}
 		$execute{firstRunSuccess} = 1 if $common{task}{plannedUntil}; # for planned retries (plannedUntil) -> no more error messages (files might be gone)
 		$execute{retryBecauseOfError} = 0;
 	} else {
 		if ($common{task}{plannedUntil} && $execute{firstRunSuccess}) {
-			$execute{retrySeconds} = $common{task}{retrySecondsPlanned};
+			$retrySeconds = $common{task}{retrySecondsPlanned};
 		} else {
-			$execute{retrySeconds} = $common{task}{retrySecondsErr};
+			$retrySeconds = $common{task}{retrySecondsErr};
 			$execute{retryBecauseOfError} = 1;
 			$execute{failcount}++;
 		}
+		$logger->debug("processingEnd: process failed, \$retrySeconds $retrySeconds, \$execute{failcount}: $execute{failcount}");
 	}
 	unless ($execute{processEnd}) {
 		# refresh config for getting changes, also check for changes in logging configuration
 		$logger->info("process has not ended, refreshing configs, planning next execution");
-		Log::Log4perl::init($EAI::Common::logConfig);
 		readAdditionalConfig(1);
+		Log::Log4perl::init($EAI::Common::logConfig);
 		# pausing processing/retry
-		my $retrySeconds = $execute{retrySeconds};
-		$retrySeconds = $common{task}{retrySecondsErr} if !$retrySeconds;
 		$retrySeconds = 60 if !$retrySeconds; # sanity fallback if retrySecondsErr not set
 		my $failcountFinish;
 		my $retrySecondsXfails = (defined($common{task}{retrySecondsXfails}) ? $common{task}{retrySecondsXfails} : 0);
 		if ($execute{failcount} > $retrySecondsXfails) {
-			$logger->info("fail count reached $common{task}{retrySecondsXfails}, so now retrySeconds are switched to $common{task}{retrySecondsErrAfterXfails}") if $common{task}{retrySecondsErrAfterXfails};
+			$logger->info("fail count reached $retrySecondsXfails, so now retrySeconds are switched to $common{task}{retrySecondsErrAfterXfails}") if $common{task}{retrySecondsErrAfterXfails};
 			$failcountFinish = 1 if !$common{task}{retrySecondsErrAfterXfails};
 			$retrySeconds = $common{task}{retrySecondsErrAfterXfails};
 		}
 		my $nextStartTime = calcNextStartTime($retrySeconds);
 		my $currentTime = EAI::DateUtil::get_curtime("%02d%02d%02d");
 		my $endTime = $common{task}{plannedUntil};
-		$endTime .= "59" if $endTime and length($endTime) == 4;
-		$endTime = "240000" if !$endTime and $processFailed;
+		$endTime .= ($endTime eq "2359" ? "59" : (length($endTime) == 4 ? "00" : "")) if $endTime; # amend HHMM time with seconds, special case 235959
+		$endTime = "235959" if !$endTime and $processFailed; # set to retry until end of day for failed processes (can be shortened with $common{task}{retrySecondsXfails})
 		$endTime = "000000->not set" if !$endTime; # if neither planned nor process failed then endtime is undefined and needs to be lower than any currentTime for next decision
 		if ($failcountFinish or $nextStartTime >= $endTime or ($nextStartTime =~ /1....../)) {
 			$logger->info("finished processing due ".($failcountFinish ? "to reaching set error count \$common{task}{retrySecondsXfails} $common{task}{retrySecondsXfails} and \$common{task}{retrySecondsErrAfterXfails} is false" : "to time out: next start time(".$nextStartTime.") >= endTime(".$endTime.") or after midnight"));
@@ -819,10 +839,20 @@ sub processingEnd {
 			deleteFiles($execute{filesToDelete}) if $execute{filesToDelete};
 			$execute{processEnd}=1;
 		} else {
-			# reset hadErrors flag
-			$common{process}{hadErrors} = 0 if ($common{process}{filenames} and !@loads);
-			$_->{process}{hadErrors} = 0 for @loads;
-			$logger->debug("\%execute ".EAI::Common::dumpFlat(\%execute,1));
+			# reset hadErrors flag and successfullyDone
+			unless (@loads) {
+				$common{process}{hadErrors} = 0;
+				$common{process}{successfullyDone} = "";
+				delete($common{process}{filesProcessed});
+				delete($common{process}{filenames});
+			}
+			for (@loads) {
+				$_->{process}{hadErrors} = 0;
+				$_->{process}{successfullyDone} = "";
+				delete($_->{process}{filesProcessed});
+				delete($_->{process}{filenames});
+			}
+			$logger->debug("\%execute =".EAI::Common::dumpFlat(\%execute,1));
 			$logger->info("Retrying in ".$retrySeconds." seconds because of ".($execute{retryBecauseOfError} ? "occurred error" : "planned retry")." until ".$endTime.", next run: ".$nextStartTime);
 			sleep $retrySeconds;
 		}
@@ -843,7 +873,6 @@ sub calcNextStartTime ($) {
 sub processingPause ($) {
 	my $pauseSeconds = shift;
 	my $logger = get_logger();
-	$logger->debug("pause");
 	$logger->info("pausing ".$pauseSeconds." seconds, resume processing: ".calcNextStartTime($pauseSeconds));
 	sleep $pauseSeconds;
 }
@@ -1146,8 +1175,6 @@ argument $arg (ref to current load or common)
 
 combines above two procedures in a general procedure to get files from FTP or locally. Arguments are fetched from common or loads[i], using File and FTP parameters. 
 
-All get<*Files*> functions also parse the file into the datastructure process{data}. Custom "hooks" can be defined with L<fieldCode|/fieldCode> and L<lineCode|/lineCode> to modify and enhance the standard mapping defined in format_header. To access the final line data the hash %EAI::File::line can be used (specific fields with $EAI::File::line{<target header column>}). if a field is being replaced using a different name from targetheader, the data with the original header name is placed in %EAI::File::templine. You can also access data from the previous line with %EAI::File::previousline and the previous temp line with %EAI::File::previoustempline.
-
 =item checkFiles ($)
 
 argument $arg (ref to current load or common)
@@ -1170,7 +1197,7 @@ get additional data from DB. Arguments are fetched from common or loads[i], usin
 
 argument $arg (ref to current load or common)
 
-read data from a file. Arguments are fetched from common or loads[i], using File parameter.
+read data from a file. Arguments are fetched from common or loads[i], using File parameter. This parses the file content into the datastructure process{data}. Custom "hooks" can be defined with L<fieldCode|/fieldCode> and L<lineCode|/lineCode> to modify and enhance the standard mapping defined in format_header. To access the final line data the hash %EAI::File::line can be used (specific fields with $EAI::File::line{<target header column>}). if a field is being replaced using a different name from targetheader, the data with the original header name is placed in %EAI::File::templine. You can also access data from the previous line with %EAI::File::previousline and the previous temp line with %EAI::File::previoustempline.
 
 =item dumpDataIntoDB ($)
 
@@ -1284,7 +1311,7 @@ from address for central logcheck/errmail sending, also used as default sender a
 
 =item historyFolder
 
-ref to hash {"scriptname.pl + optional addToScriptName" => "folder"}, folders where downloaded files are historized, lookup key as in checkLookup, default in "" => "defaultfolder"
+ref to hash {"scriptname.pl + optional addToScriptName" => "folder"}, folders where downloaded files are historized, lookup key as in checkLookup, default in "" => "defaultfolder". historyFolder, historyFolderUpload, logRootPath and redoDir are always built with an environment subfolder, the default is built as folderPath/endFolder/environ, otherwise it is built as folderPath/environ/endFolder. Environment subfolders (environ) are also built depending on prodEnvironmentInSeparatePath: either folderPath/endFolder/$execute{env} (prodEnvironmentInSeparatePath = true, Prod has own subfolder) or folderPath/endFolder/$execute{envraw} (prodEnvironmentInSeparatePath = false, Prod is in common folder, other environments have their own folder)
 
 =item historyFolderUpload
 
@@ -1804,7 +1831,7 @@ directly upload files, without temp files
 
 =item fileToArchive
 
-should file be archived on FTP server? requires archiveDir to be set
+should file be archived on FTP server? if archiveDir is not set, then file is archived (rolled) in the same folder
 
 =item fileToRemove
 
@@ -1817,6 +1844,10 @@ debug ftp: 0 or ~(1|2|4|8|16|1024|2048), loglevel automatically set to debug for
 =item hostkey
 
 hostkey to present to the server for Net::SFTP::Foreign, either directly (insecure -> visible) or via sensitive lookup
+
+=item hostkey2
+
+additional hostkey to be presented (e.g. in case of round robin DNS)
 
 =item localDir
 

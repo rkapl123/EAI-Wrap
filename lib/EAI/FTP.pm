@@ -1,4 +1,4 @@
-package EAI::FTP 1.903;
+package EAI::FTP 1.904;
 
 use strict; use feature 'unicode_strings'; use warnings;
 use Exporter qw(import); use Net::SFTP::Foreign (); use Net::SFTP::Foreign::Constants qw( SFTP_ERR_LOCAL_UTIME_FAILED ); use Net::FTP (); use Text::Glob qw(match_glob);
@@ -206,7 +206,12 @@ sub fetchFiles ($$) {
 					$logger->debug("fetching file ".$multipleRemoteFiles[$i]);
 					_get($multipleRemoteFiles[$i], $localPath.$multipleFiles[$i], $queue_size, $FTP->{additionalParamsGet}) or do {
 						unless (_error() == SFTP_ERR_LOCAL_UTIME_FAILED) {
-							$logger->error("error: can't get remote-file ".$multipleRemoteFiles[$i]." from glob $remoteFile, reason: "._error().", status: "._status()) unless $suppressGetError;
+							if ($suppressGetError) {
+								no warnings 'uninitialized';
+								$logger->debug("can't get remote-file ".$multipleRemoteFiles[$i].", reason: "._error().", error message suppressed because of \$param{firstRunSuccess}(".$param->{firstRunSuccess}.") or \$param{fileToRetrieveOptional}(".$param->{fileToRetrieveOptional}.")");
+							} else {
+								$logger->error("error: can't get remote-file ".$multipleRemoteFiles[$i]." from glob $remoteFile, reason: "._error().", status: "._status());
+							}
 							@{$param->{retrievedFiles}} = ();
 							return 0;
 						}
@@ -222,7 +227,7 @@ sub fetchFiles ($$) {
 					unless (_error() == SFTP_ERR_LOCAL_UTIME_FAILED) {
 						if ($suppressGetError) {
 							no warnings 'uninitialized';
-							$logger->warn("can't get remote-file $remoteFile, reason: "._error().", status: "._status()." suppressed because of \$param{firstRunSuccess}(".$param->{firstRunSuccess}.") or \$param{fileToRetrieveOptional}(".$param->{fileToRetrieveOptional}.")");
+							$logger->debug("can't get remote-file $remoteFile, reason: "._error().", error message suppressed because of \$param{firstRunSuccess}(".$param->{firstRunSuccess}.") or \$param{fileToRetrieveOptional}(".$param->{fileToRetrieveOptional}.")");
 						} else {
 							$logger->error("can't get remote-file $remoteFile, reason: "._error().", status: "._status());
 						}
@@ -436,11 +441,11 @@ sub removeFiles ($) {
 }
 
 # login, creating a new ftp connection
-sub login ($$) {
-	my ($FTP,$setRemoteHost) = @_;
+sub login ($$;$) {
+	my ($FTP,$setRemoteHost,$enforceConn) = @_;
 	my $logger = get_logger();
 	$setRemoteHost = "" if !defined($setRemoteHost);
-	if ($RemoteHost ne $setRemoteHost or !defined($ftp)) {
+	if ($RemoteHost ne $setRemoteHost or !defined($ftp) or (defined($enforceConn) and $enforceConn)) {
 		$RemoteHost = $setRemoteHost;
 		undef $ftp if defined($ftp); # close ftp connection if open.
 	} else {
@@ -480,6 +485,7 @@ sub login ($$) {
 		$logger->info("connecting to $RemoteHost using SSH FTP");
 		my @moreparams;
 		push @moreparams, ("-hostkey", $FTP->{hostkey}) if $FTP->{hostkey};
+		push @moreparams, ("-hostkey", $FTP->{hostkey2}) if $FTP->{hostkey2};
 		push @moreparams, ("-i", $FTP->{privKey}) if $FTP->{privKey};
 		push @moreparams, ("-v", "") if $debugLevel;
 		push @moreparams, @{$FTP->{additionalMoreArgs}} if $FTP->{additionalMoreArgs};
