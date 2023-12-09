@@ -267,7 +267,7 @@ sub getLocalFiles ($) {
 		return 0;
 	}
 	$process->{successfullyDone}.="getLocalFiles";
-	return 1;
+	return checkFiles($arg);
 }
 
 # get file/s (can also be a glob for multiple files) from FTP into homedir
@@ -295,7 +295,7 @@ sub getFilesFromFTP ($) {
 		return 0;
 	}
 	$process->{successfullyDone}.="getFilesFromFTP";
-	return 1;
+	return checkFiles($arg);
 }
 
 # general procedure to get files from FTP or locally
@@ -1022,8 +1022,7 @@ EAI::Wrap - framework for easy creation of Enterprise Application Integration ta
     openFTPConn(\%common) or die;
     while (!$execute{processEnd}) {
     	for my $load (@loads) {
-    		getFilesFromFTP($load);
-    		if (checkFiles($load)) {
+    		if (getFilesFromFTP($load)) {
     			readFileData($load);
     			dumpDataIntoDB($load);
     			markProcessed($load);
@@ -1123,7 +1122,7 @@ The INIT procedure is executed at the task script initialization (when EAI::Wrap
 
 =head2 API: High-level subs
 
-Following are the high level subs that can be called for a standard workflow. Most of them accumulate their sub names to prevent any further call in a faulting loop, when they alrady ran successfully.
+Following are the high level subs that can be called for a standard workflow. Most of them accumulate their sub names in process{successfullyDone} to prevent any further call in a faulting loop, when they alrady ran successfully. Also process{hadErrors} is set in case of errors to provide for error repeating. Downloaded files are collected in process{filenames} and completely processed files in process{filesProcessed}.
 
 =over 4
 
@@ -1161,31 +1160,19 @@ redo file from redo directory if specified (C<$common{task}{redoFile}> is being 
 
 argument $arg (ref to current load or common)
 
-get local file(s) from source into homedir, uses C<$File-E<gt>{filename}>, C<$File-E<gt>{extension}> and C<$File-E<gt>{avoidRenameForRedo}>. Arguments are fetched from common or loads[i], using File parameter.
+get local file(s) from source into homedir, checks files for continuation of processing and extract archives if needed. Arguments are fetched from common or loads[i], using File parameter. The processed files are put into process->{filenames} (always runs in a faulting loop). Uses C<$File-E<gt>{filename}>, C<$File-E<gt>{extension}> and C<$File-E<gt>{avoidRenameForRedo}>.
 
 =item getFilesFromFTP ($)
 
 argument $arg (ref to current load or common)
 
-get file/s (can also be a glob for multiple files) from FTP into homedir and extract archives if needed. Arguments are fetched from common or loads[i], using File and FTP parameters.
+get file/s (can also be a glob for multiple files) from FTP into homedir, checks files for continuation of processing and extract archives if needed. Arguments are fetched from common or loads[i], using File and FTP parameters. The processed files are put into process->{filenames} (always runs in a faulting loop).
 
 =item getFiles ($)
 
 argument $arg (ref to current load or common)
 
 combines above two procedures in a general procedure to get files from FTP or locally. Arguments are fetched from common or loads[i], using File and FTP parameters. 
-
-=item checkFiles ($)
-
-argument $arg (ref to current load or common)
-
-check files for continuation of processing and extract archives if needed. Arguments are fetched from common or loads[i], using File parameter. The processed files are put into process->{filenames} (always runs in a faulting loop).
-
-=item extractArchives ($)
-
-argument $arg (ref to current load or common)
-
-extract files from archive. Arguments are fetched from common or loads[i], using only the process->{filenames} parameter that was filled by checkFiles. 
 
 =item getAdditionalDBData ($;$)
 
