@@ -122,6 +122,7 @@ foreach my $job (keys %{$config{checkLookup}}) {
 		$logger->info("failed logcheck for '".$job."', sending mail to: '".$mailsendTo);
 		#            sendGeneralMail($From, $To, $Cc, $Bcc, $Subject, $Data, $Type, $Encoding, $AttachType, $AttachFile)
 		EAI::Common::sendGeneralMail("", $mailsendTo,"","","Starting problem detected for $job",$infos,'text/plain');
+		$doneError{$job} = 1;
 	}
 }
 my $jobErrors = "";

@@ -1,4 +1,4 @@
-package EAI::Common 1.904;
+package EAI::Common 1.906;
 
 use strict; use feature 'unicode_strings'; use warnings; no warnings 'uninitialized';
 use Exporter qw(import); use EAI::DateUtil; use Data::Dumper qw(Dumper); use Getopt::Long qw(:config no_ignore_case); use Log::Log4perl qw(get_logger); use MIME::Lite (); use Scalar::Util qw(looks_like_number);
@@ -43,18 +43,16 @@ my %hashCheck = (
 		task => {},
 	},
 	execute => { # hash of parameters for current task execution which is not set by the user but can be used to set other parameters and control the flow
-		alreadyMovedOrDeleted => {}, # hash for checking the already moved or deleted files, to avoid moving/deleting them again at cleanup
+		alreadyMovedOrDeleted => {}, # hash for checking the already moved or deleted local files, to avoid moving/deleting them again at cleanup
 		addToScriptName => "", # this can be set to be added to the scriptname for config{checkLookup} keys, e.g. some passed parameter.
 		env => "", # Prod, Test, Dev, whatever is defined as the lookup value in folderEnvironmentMapping. homedir as fetched from the File::basename::dirname of the executing script using /^.*[\\\/](.*?)$/ is used as the key for looking up this value.
 		envraw => "", # Production has a special significance here as being an empty string. Otherwise like env.
-		errmailaddress => "", # for central logcheck/errmail sending in current process
-		errmailsubject => "", # for central logcheck/errmail sending in current process
+		errmailaddress => "", # target address for central logcheck/errmail sending in current process
+		errmailsubject => "", # mail subject for central logcheck/errmail sending in current process
 		failcount => 1, # for counting failures in processing to switch to longer wait period or finish altogether
-		filesToArchive => [], # list of files to be moved in archiveDir on FTP server, necessary for cleanup at the end of the process
-		filesToDelete => [], # list of files to be deleted on FTP server, necessary for cleanup at the end of the process
+		filesToDelete => [], # list of files to be deleted locally after download, necessary for cleanup at the end of the process
 		filesToMoveinHistory => [], # list of files to be moved in historyFolder locally, necessary for cleanup at the end of the process
 		filesToMoveinHistoryUpload => [], # list of files to be moved in historyFolderUpload locally, necessary for cleanup at the end of the process
-		filesToRemove => [], # list of files to be deleted locally, necessary for cleanup at the end of the process
 		firstRunSuccess => 1, # for planned retries (process=>plannedUntil filled) -> this is set after the first run to avoid error messages resulting of files having been moved/removed.
 		freqToCheck => "", # for logchecker:  frequency to check entries (B,D,M,M1) ...
 		homedir => "", # the home folder of the script, mostly used to return from redo and other folders for globbing files.
@@ -70,6 +68,7 @@ my %hashCheck = (
 		retrySeconds => 60, # how many seconds are passed between retries. This is set on error with process=>retrySecondsErr and if planned retry is defined with process=>retrySecondsPlanned
 		scriptname => "", # name of the current process script, also used in log/history setup together with addToScriptName for config{checkLookup} keys
 		timeToCheck => "", # for logchecker: scheduled time of job (don't look earlier for log entries)
+		uploadFilesToDelete => [], # list of files to be deleted locally after upload, necessary for cleanup at the end of the process
 	},
 	load => {
 		DB => {},
@@ -166,8 +165,8 @@ my %hashCheck = (
 		dontDoUtime => 1, # don't set time stamp of local file to that of remote file
 		dontUseQuoteSystemForPwd => 0, # for windows, a special quoting is used for passing passwords to Net::SFTP::Foreign that contain [()"<>& . This flag can be used to disable this quoting.
 		dontUseTempFile => 1, # directly upload files, without temp files
-		fileToArchive => 1, # should file be archived on FTP server? if archiveDir is not set, then file is archived (rolled) in the same folder
-		fileToRemove => 1, # should file be removed on FTP server?
+		fileToArchive => 1, # should files be archived on FTP server? if archiveDir is not set, then file is archived (rolled) in the same folder
+		fileToRemove => 1, # should files be removed on FTP server?
 		FTPdebugLevel => 0, # debug ftp: 0 or ~(1|2|4|8|16|1024|2048), loglevel automatically set to debug for module EAI::FTP
 		hostkey => "", # hostkey to present to the server for Net::SFTP::Foreign, either directly (insecure -> visible) or via sensitive lookup
 		hostkey2 => "", # additional hostkey to be presented (e.g. in case of round robin DNS)
@@ -199,7 +198,7 @@ my %hashCheck = (
 		filesProcessed => {}, # hash for checking the processed files, necessary for cleanup at the end of the whole task
 		hadErrors => 1, # set to 1 if there were any errors in the process
 		interactive_ => "", # interactive options (are not checked), can be used to pass arbitrary data via command line into the script (eg a selected date for the run with interactive_date).
-		onlyExecFor => qr//, # mark loads to only be executed when $common{task}{execOnly} !~ $load->{process}{onlyExecFor}
+		onlyExecFor => qr//, # define loads to only be executed when $common{task}{execOnly} !~ $load->{process}{onlyExecFor}. Empty onlyExecFor loads are always executed regardless of $common{task}{execOnly}
 		successfullyDone => "", # accumulates API sub names to prevent most API calls that ran successfully from being run again.
 		uploadCMD => "", # upload command for use with uploadFileCMD
 		uploadCMDPath => "", # path of upload command
@@ -207,7 +206,7 @@ my %hashCheck = (
 	},
 	task => { # contains parameters used on the task script level
 		customHistoryTimestamp => "", # optional custom timestamp to be added to filenames moved to History/HistoryUpload/FTP archive, if not given, get_curdatetime is used (YYYYMMDD_hhmmss)
-		execOnly => "", # used to remove loads where $common{task}{execOnly} !~ $load->{process}{onlyExecFor}
+		execOnly => "", # do not execute loads where $common{task}{execOnly} !~ $load->{process}{onlyExecFor}. Empty onlyExecFor loads are always executed regardless of $common{task}{execOnly}
 		ignoreNoTest => 0, # ignore the notest file in the process-script folder, usually preventing all runs that are not in production
 		plannedUntil => 2359, # latest time that planned repetition should start, this can be given either as HHMM (HourMinute) or HHMMSS (HourMinuteSecond), in case of HHMM the "Second" part is attached as 59
 		redoFile => 1, # flag for specifying a redo
@@ -324,7 +323,7 @@ sub setupConfigMerge {
 	# remove load elements where $common{task}{execOnly} !~ $load->{process}{onlyExecFor}
 	my $i=0;
 	while ($i <= $#loads) {
-		if ($common{task}{execOnly} and $common{task}{execOnly} !~ $loads[$i]{process}{onlyExecFor}) {
+		if ($common{task}{execOnly} and $loads[$i]{process}{onlyExecFor} and $common{task}{execOnly} !~ $loads[$i]{process}{onlyExecFor}) {
 			$logger->debug("removing load $i because \$common{task}{execOnly} given and $common{task}{execOnly} !~ $loads[$i]{process}{onlyExecFor} (\$load{process}{onlyExecFor}), \$#loads: $#loads");
 			splice @loads, $i, 1;
 		} else {
@@ -383,7 +382,7 @@ sub getOptions {
 sub extractConfigs ($$$;@) {
 	my ($contextSub,$arg,@required) = @_;
 	my $logger = get_logger();
-	$logger->debug(($contextSub ? "setting err subject $contextSub for " : "").(caller(1))[3]) if caller(1);
+	$logger->debug(($contextSub ? "setting err subject <$contextSub> for " : "").(caller(1))[3]) if caller(1);
 	setErrSubject($contextSub) if $contextSub;
 	my @ret;
 	if (ref($arg) eq "HASH") {

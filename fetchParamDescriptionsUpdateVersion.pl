@@ -1,6 +1,6 @@
 use strict; use feature 'unicode_strings';
 # enter new version to update all modules with
-print "new version (empty to skip):";
+print "new version (empty to skip and only fetch param descriptions into Wrap.pm):";
 my $newVersion = <STDIN>;
 chomp $newVersion;
 # used for CONFIGURATION REFERENCE, fetches comments from %hashCheck in Common.pm and translates them to pod =items
@@ -31,6 +31,11 @@ while (<COMMONFILE>){
 	}
 }
 close COMMONFILE;
+
+my $data = read_file ("Makefile.PL");
+print "updating version for Makefile.PL\n";
+$data =~ s/', version => [\d\.]+},/', version => $newVersion},/g if $newVersion;
+write_file("Makefile.PL", $data);
 
 my $data = read_file ("lib/EAI/Wrap.pm");
 print "updating version and API descriptions for Wrap.pm\n";

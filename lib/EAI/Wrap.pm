@@ -1,4 +1,4 @@
-package EAI::Wrap 1.904;
+package EAI::Wrap 1.906;
 
 use strict; use feature 'unicode_strings'; use warnings;
 use Exporter qw(import); use Data::Dumper qw(Dumper); use File::Copy qw(copy move); use Cwd qw(chdir); use Archive::Extract ();
@@ -216,7 +216,7 @@ sub redoFiles ($) {
 		return 0;
 	}
 	chdir($execute{homedir});
-	return 1;
+	return checkFiles($arg);
 }
 
 # get local file(s) from source into homedir
@@ -282,7 +282,7 @@ sub getFilesFromFTP ($) {
 			return redoFiles($arg);
 		} else {
 			if ($File->{filename}) {
-				return EAI::FTP::fetchFiles($FTP,{firstRunSuccess=>$execute{firstRunSuccess},homedir=>$execute{homedir},fileToRetrieve=>$File->{filename},fileToRetrieveOptional=>$File->{optional},retrievedFiles=>$execute{retrievedFiles}});
+				EAI::FTP::fetchFiles($FTP,{firstRunSuccess=>$execute{firstRunSuccess},homedir=>$execute{homedir},fileToRetrieve=>$File->{filename},fileToRetrieveOptional=>$File->{optional},retrievedFiles=>$execute{retrievedFiles}}) or $logger->warn("EAI::FTP::fetchFiles not successful");
 			} else {
 				$logger->error("no \$File->{filename} given, can't get it from FTP");
 				$process->{hadErrors} = 1;
@@ -635,7 +635,7 @@ sub putFileInLocalDir ($) {
 		if ($File->{localFilesystemPath} eq '.') {
 			$logger->info("\$File->{localFilesystemPath} is '.', didn't move files");
 		} else {
-			$logger->error("no \$File->{localFilesystemPath} defined, therefore no files processed with uploadFileCMD");
+			$logger->error("no \$File->{localFilesystemPath} defined, therefore no files processed with putFileInLocalDir");
 			return 0;
 		}
 	}
@@ -649,7 +649,7 @@ sub markForHistoryDelete ($) {
 	my $logger = get_logger();
 	my ($File) = EAI::Common::extractConfigs("",$arg,"File");
 	if ($File->{dontKeepHistory}) {
-		push @{$execute{filesToDelete}}, $File->{filename};
+		push @{$execute{uploadFilesToDelete}}, $File->{filename};
 	} elsif (!$File->{dontMoveIntoHistory}) {
 		push @{$execute{filesToMoveinHistoryUpload}}, $File->{filename};
 	}
@@ -786,6 +786,7 @@ sub processingEnd {
 		EAI::Common::setErrSubject("local archiving/removal");
 		moveFilesToHistory($common{task}{customHistoryTimestamp});
 		deleteFiles($execute{filesToDelete}) if $execute{filesToDelete};
+		deleteFiles($execute{uploadFilesToDelete},1) if $execute{uploadFilesToDelete};
 		if ($common{task}{plannedUntil}) {
 			$execute{processEnd} = 0; # reset, if repetition is planned
 			$retrySeconds = $common{task}{retrySecondsPlanned};
@@ -837,6 +838,7 @@ sub processingEnd {
 			$logger->info("finished processing due ".($failcountFinish ? "to reaching set error count \$common{task}{retrySecondsXfails} $common{task}{retrySecondsXfails} and \$common{task}{retrySecondsErrAfterXfails} is false" : "to time out: next start time(".$nextStartTime.") >= endTime(".$endTime.") or after midnight"));
 			moveFilesToHistory($common{task}{customHistoryTimestamp});
 			deleteFiles($execute{filesToDelete}) if $execute{filesToDelete};
+			deleteFiles($execute{uploadFilesToDelete},1) if $execute{uploadFilesToDelete};
 			$execute{processEnd}=1;
 		} else {
 			# reset hadErrors flag and successfullyDone
@@ -886,7 +888,10 @@ sub moveFilesToHistory (;$) {
 	EAI::Common::setErrSubject("local archiving");
 	for my $histFolder ("historyFolder", "historyFolderUpload") {
 		my @filenames = @{$execute{filesToMoveinHistory}} if $execute{filesToMoveinHistory};
-		@filenames = @{$execute{filesToMoveinHistoryUpload}} if $histFolder eq "historyFolderUpload" and $execute{filesToMoveinHistoryUpload};
+		if ($histFolder eq "historyFolderUpload" and $execute{filesToMoveinHistoryUpload}) {
+			@filenames = @{$execute{filesToMoveinHistoryUpload}};
+			$redoDir = ""; # no redoDir for uploads !
+		}
 		for (@filenames) {
 			my ($strippedName, $ext) = /(.+)\.(.+?)$/;
 			# if done from a redoDir, then add this folder to file (e.g. if done from redo/user specific folder then Filename_20190219_124409.txt becomes Filename_20190219_124409_redo_userspecificfolder_.txt)
@@ -907,14 +912,15 @@ sub moveFilesToHistory (;$) {
 }
 
 # removing files
-sub deleteFiles ($) {
-	my ($filenames) = @_;
+sub deleteFiles ($;$) {
+	my ($filenames,$uploadFileFlag) = @_;
 	my $logger = get_logger();
 	my $redoDir = ($common{task}{redoFile} ? $execute{redoDir}."/" : "");
+	$redoDir = "" if $uploadFileFlag;
 	EAI::Common::setErrSubject("local cleanup"); #
 	for (@$filenames) {
 		if (!$execute{alreadyMovedOrDeleted}{$_}) {
-			$logger->info("removing ".($common{task}{redoFile} ? "repeated loaded " : "")."file $redoDir$_ ");
+			$logger->info("removing ".($common{task}{redoFile} ? "re-done " : "")."file $redoDir$_ ");
 			unlink $redoDir.$_ or $logger->error("error when removing file $redoDir".$_." : $!");
 			$execute{alreadyMovedOrDeleted}{$_} = 1;
 		}
@@ -1104,7 +1110,7 @@ A special merge is done for configurations defined in hash C<lookups>, which may
 
 hash of parameters for current task execution which is not set by the user but can be used to set other parameters and control the flow. Most important here are C<$execute{env}>, giving the current used environment (Prod, Test, Dev, whatever), C<$execute{envraw}> (Production is empty here), the several file lists (files being procesed, files for deletion/moving, etc.), flags for ending/interrupting processing and directory locations as home and history
 
-Detailed information about the several parameters used can be found in section L<execute|/execute> of the configuration parameter reference, there are parameters for files (L<filesProcessed|/filesProcessed>, L<filesToArchive|/filesToArchive>, L<filesToDelete|/filesToDelete>, L<filesToMoveinHistory|/filesToMoveinHistory>, L<filesToMoveinHistoryUpload|/filesToMoveinHistoryUpload>, L<filesToRemove|/filesToRemove> and L<retrievedFiles|/retrievedFiles>), directories (L<homedir|/homedir>, L<historyFolder|/historyFolder>, L<historyFolderUpload|/historyFolderUpload> and L<redoDir|/redoDir>), process controlling parameters (L<failcount|/failcount>, L<firstRunSuccess|/firstRunSuccess>, L<retryBecauseOfError|/retryBecauseOfError>, L<retrySeconds|/retrySeconds> and L<processEnd|/processEnd>).
+Detailed information about the several parameters used can be found in section L<execute|/execute> of the configuration parameter reference, there are parameters for files (L<filesProcessed|/filesProcessed>, L<filesToDelete|/filesToDelete>, L<filesToMoveinHistory|/filesToMoveinHistory>, L<filesToMoveinHistoryUpload|/filesToMoveinHistoryUpload>, L<retrievedFiles|/retrievedFiles>) and L<uploadFilesToDelete|/uploadFilesToDelete>, directories (L<homedir|/homedir>, L<historyFolder|/historyFolder>, L<historyFolderUpload|/historyFolderUpload> and L<redoDir|/redoDir>), process controlling parameters (L<failcount|/failcount>, L<firstRunSuccess|/firstRunSuccess>, L<retryBecauseOfError|/retryBecauseOfError>, L<retrySeconds|/retrySeconds> and L<processEnd|/processEnd>).
 
 Retrying with checking C<$execute{processEnd}> (set during C<processingEnd()>) can happen because of two reasons: First, due to C<task =E<gt> {plannedUntil =E<gt> "HHMM"}> being set to a time until the task has to be retried, however this is done at most until midnight. Second, because an error occurred, in such a case C<$process-E<gt>{hadErrors}> is set for each load that failed. C<$process{successfullyDone}> is also important in this context as it prevents the repeated run of following API procedures if the loads didn't have an error during their execution:
 
@@ -1173,6 +1179,18 @@ get file/s (can also be a glob for multiple files) from FTP into homedir, checks
 argument $arg (ref to current load or common)
 
 combines above two procedures in a general procedure to get files from FTP or locally. Arguments are fetched from common or loads[i], using File and FTP parameters. 
+
+=item checkFiles ($)
+
+argument $arg (ref to current load or common)
+
+check files for continuation of processing and extract archives if needed. Arguments are fetched from common or loads[i], using File parameter. The processed files are put into process->{filenames} (always runs in a faulting loop). Important: files (their filenames) not retrieved by getFilesFromFTP or getLocalFiles have to be put into $execute{retrievedFiles} (e.g. push @{$execute{retrievedFiles}}, $filenameTobeChecked)!
+
+=item extractArchives ($)
+
+argument $arg (ref to current load or common)
+
+extract files from archive (only one archive is allowed). Arguments are fetched from common or loads[i], using only the process->{filenames} parameter that was filled by checkFiles. If not being called by getFilesFromFTP/getLocalFiles and checkFiles @{$process{filenames}} has to contain the archive filename.
 
 =item getAdditionalDBData ($;$)
 
@@ -1350,7 +1368,7 @@ hash of parameters for current task execution which is not set by the user but c
 
 =item alreadyMovedOrDeleted
 
-hash for checking the already moved or deleted files, to avoid moving/deleting them again at cleanup
+hash for checking the already moved or deleted local files, to avoid moving/deleting them again at cleanup
 
 =item addToScriptName
 
@@ -1366,23 +1384,19 @@ Production has a special significance here as being an empty string. Otherwise l
 
 =item errmailaddress
 
-for central logcheck/errmail sending in current process
+target address for central logcheck/errmail sending in current process
 
 =item errmailsubject
 
-for central logcheck/errmail sending in current process
+mail subject for central logcheck/errmail sending in current process
 
 =item failcount
 
 for counting failures in processing to switch to longer wait period or finish altogether
 
-=item filesToArchive
-
-list of files to be moved in archiveDir on FTP server, necessary for cleanup at the end of the process
-
 =item filesToDelete
 
-list of files to be deleted on FTP server, necessary for cleanup at the end of the process
+list of files to be deleted locally after download, necessary for cleanup at the end of the process
 
 =item filesToMoveinHistory
 
@@ -1391,10 +1405,6 @@ list of files to be moved in historyFolder locally, necessary for cleanup at the
 =item filesToMoveinHistoryUpload
 
 list of files to be moved in historyFolderUpload locally, necessary for cleanup at the end of the process
-
-=item filesToRemove
-
-list of files to be deleted locally, necessary for cleanup at the end of the process
 
 =item firstRunSuccess
 
@@ -1455,6 +1465,10 @@ name of the current process script, also used in log/history setup together with
 =item timeToCheck
 
 for logchecker: scheduled time of job (don't look earlier for log entries)
+
+=item uploadFilesToDelete
+
+list of files to be deleted locally after upload, necessary for cleanup at the end of the process
 
 =back
 
@@ -1818,11 +1832,11 @@ directly upload files, without temp files
 
 =item fileToArchive
 
-should file be archived on FTP server? if archiveDir is not set, then file is archived (rolled) in the same folder
+should files be archived on FTP server? if archiveDir is not set, then file is archived (rolled) in the same folder
 
 =item fileToRemove
 
-should file be removed on FTP server?
+should files be removed on FTP server?
 
 =item FTPdebugLevel
 
@@ -1950,7 +1964,7 @@ interactive options (are not checked), can be used to pass arbitrary data via co
 
 =item onlyExecFor
 
-mark loads to only be executed when $common{task}{execOnly} !~ $load->{process}{onlyExecFor}
+define loads to only be executed when $common{task}{execOnly} !~ $load->{process}{onlyExecFor}. Empty onlyExecFor loads are always executed regardless of $common{task}{execOnly}
 
 =item successfullyDone
 
@@ -1982,7 +1996,7 @@ optional custom timestamp to be added to filenames moved to History/HistoryUploa
 
 =item execOnly
 
-used to remove loads where $common{task}{execOnly} !~ $load->{process}{onlyExecFor}
+do not execute loads where $common{task}{execOnly} !~ $load->{process}{onlyExecFor}. Empty onlyExecFor loads are always executed regardless of $common{task}{execOnly}
 
 =item ignoreNoTest
 
