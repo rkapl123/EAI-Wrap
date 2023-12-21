@@ -9,7 +9,7 @@ WriteMakefile(
 	LICENSE       => 'MIT',
 	ABSTRACT_FROM => 'lib/EAI/Wrap.pm',
 	VERSION_FROM  => 'lib/EAI/Wrap.pm',
-	MIN_PERL_VERSION => 5.8,
+	MIN_PERL_VERSION => 5.006,
 	PREREQ_PM     => {
 		'Archive::Extract' => 0,
 		'Data::XLSX::Parser' => 0.20,
