@@ -1,4 +1,4 @@
-package EAI::Wrap 1.906;
+package EAI::Wrap 1.907;
 
 use strict; use feature 'unicode_strings'; use warnings;
 use Exporter qw(import); use Data::Dumper qw(Dumper); use File::Copy qw(copy move); use Cwd qw(chdir); use Archive::Extract ();
@@ -282,7 +282,9 @@ sub getFilesFromFTP ($) {
 			return redoFiles($arg);
 		} else {
 			if ($File->{filename}) {
-				EAI::FTP::fetchFiles($FTP,{firstRunSuccess=>$execute{firstRunSuccess},homedir=>$execute{homedir},fileToRetrieve=>$File->{filename},fileToRetrieveOptional=>$File->{optional},retrievedFiles=>$execute{retrievedFiles}}) or $logger->warn("EAI::FTP::fetchFiles not successful");
+				unless (EAI::FTP::fetchFiles($FTP,{firstRunSuccess=>$execute{firstRunSuccess},homedir=>$execute{homedir},fileToRetrieve=>$File->{filename},fileToRetrieveOptional=>$File->{optional},retrievedFiles=>$execute{retrievedFiles}})) {
+					$logger->warn("EAI::FTP::fetchFiles not successful");
+				}
 			} else {
 				$logger->error("no \$File->{filename} given, can't get it from FTP");
 				$process->{hadErrors} = 1;
@@ -294,8 +296,12 @@ sub getFilesFromFTP ($) {
 		$process->{hadErrors} = 1;
 		return 0;
 	}
-	$process->{successfullyDone}.="getFilesFromFTP";
-	return checkFiles($arg);
+	if (checkFiles($arg)) {
+		$process->{successfullyDone}.="getFilesFromFTP";
+		return 1;
+	} else {
+		return 0;
+	}
 }
 
 # general procedure to get files from FTP or locally
@@ -316,7 +322,7 @@ sub checkFiles ($) {
 	my $logger = get_logger();
 	my ($File,$process) = EAI::Common::extractConfigs("checking for existence of files",$arg,"File","process");
 	my $redoDir = ($common{task}{redoFile} ? $execute{redoDir}."/" : "");
-	my $fileDoesntExist;
+	my $fileDoesntExist = 0;
 	if ($execute{retrievedFiles} and @{$execute{retrievedFiles}} >= 1) {
 		for my $singleFilename (@{$execute{retrievedFiles}}) {
 			$logger->debug("checking file: ".$redoDir.$singleFilename);
@@ -344,7 +350,7 @@ sub checkFiles ($) {
 			}
 			$process->{hadErrors} = 1;
 		}
-		$logger->debug("checking file failed");
+		$logger->info("checking file failed");
 		return 0;
 	}
 	# extract from files if needed
@@ -359,9 +365,14 @@ sub checkFiles ($) {
 		}
 	}
 	# add the files retrieved
-	push @{$process->{filenames}}, @{$execute{retrievedFiles}} if ($execute{retrievedFiles} && @{$execute{retrievedFiles}} > 0);
-	$logger->info("files checked: @{$process->{filenames}}") if $process->{filenames};
-	return 1;
+	if ($execute{retrievedFiles} && @{$execute{retrievedFiles}} > 0) {
+		push @{$process->{filenames}}, @{$execute{retrievedFiles}};
+		$logger->info("files checked: @{$process->{filenames}}");
+		return 1;
+	} else {
+		$logger->error("no files retrieved for checking");
+		return 0;
+	}
 }
 
 # extract files from archive
@@ -435,6 +446,7 @@ sub readFileData ($) {
 	my $redoDir = $execute{redoDir}."/" if $common{task}{redoFile};
 	return 1 if $process->{successfullyDone} and $process->{successfullyDone} =~ /readFileData/ and $execute{retryBecauseOfError};
 	my $readSuccess;
+	@{$process->{data}} = (); # reset data in case of error retries having erroneous data
 	if ($File->{format_xlformat}) {
 		$readSuccess = EAI::File::readExcel($File, \@{$process->{data}}, $process->{filenames}, $redoDir);
 	} elsif ($File->{format_XML}) {
@@ -538,7 +550,7 @@ sub dumpDataIntoDB ($) {
 			$logger->warn("received empty data, will be ignored as \$File{emptyOK}=1");
 		} else {
 			my @filesdone = @{$process->{filenames}} if $process->{filenames};
-			$logger->error("error as none of the following files didn't contain data: @filesdone !");
+			$logger->error("error as none of the following files contained any data: @filesdone !");
 			$hadDBErrors = 1;
 		}
 	}
@@ -579,10 +591,10 @@ sub markProcessed ($) {
 	}
 	# mark to be removed or be moved to history
 	if ($File->{dontKeepHistory}) {
-		push @{$execute{filesToDelete}}, @{$process->{filenames}};
+		push @{$execute{filesToDelete}}, @{$process->{filenames}} if $process->{filenames};
 		push @{$execute{filesToDelete}}, @{$process->{archivefilenames}} if $process->{archivefilenames};
 	} else {
-		push @{$execute{filesToMoveinHistory}}, @{$process->{filenames}};
+		push @{$execute{filesToMoveinHistory}}, @{$process->{filenames}} if $process->{filenames};
 		push @{$execute{filesToMoveinHistory}}, @{$process->{archivefilenames}} if $process->{archivefilenames};
 	}
 }
@@ -736,7 +748,6 @@ sub uploadFile ($) {
 }
 
 my $retrySeconds; # seconds to wait for next retry, can change depending on settings (plannedUntil, errors, etc.)
-my (%filesToRemove, %filesToArchive); # hash to collect this only once
 # final processing steps for processEnd (cleanup, FTP removal/archiving) or retry after pausing. No context argument as it always depends on all loads/common
 sub processingEnd {
 	my $logger = get_logger();
@@ -751,6 +762,7 @@ sub processingEnd {
 			EAI::Common::setErrSubject("FTP archiving/removal");
 			my (@filesToRemove,@filesToArchive);
 			if ($common{process}{filenames} and !@loads) { # only take common part if no loads were defined.
+				my (%filesToRemove, %filesToArchive); # hash to collect this only once
 				for (@{$common{process}{filenames}}) {
 					# "onlyArchive" files are not processed and there is no need to check whether they were processed,
 					# else only pass the actual processed files for archiving/removal
@@ -766,6 +778,7 @@ sub processingEnd {
 				}
 			}
 			for my $load (@loads) {
+				my (%filesToRemove, %filesToArchive); # hash to collect this only once
 				if ($load->{process}{filenames}) {
 					for (@{$load->{process}{filenames}}) {
 						$filesToRemove{$_} = 1 if $load->{FTP}{fileToRemove} and ($load->{process}{filesProcessed}{$_} or $load->{FTP}{onlyArchive});
@@ -800,7 +813,7 @@ sub processingEnd {
 			}
 			# send success mail, if successful after first failure
 			my $retryScript = $execute{scriptname}.(defined($execute{addToScriptName}) ? " ".$execute{addToScriptName} : "");
-			EAI::Common::sendGeneralMail("", $config{errmailaddress},"","","Successful retry of $retryScript","@filesProcessed succesfully done on retry");
+			EAI::Common::sendGeneralMail("", $execute{errmailaddress},"","","Successful retry of $retryScript","@filesProcessed succesfully done on retry");
 		}
 		$execute{firstRunSuccess} = 1 if $common{task}{plannedUntil}; # for planned retries (plannedUntil) -> no more error messages (files might be gone)
 		$execute{retryBecauseOfError} = 0;
@@ -841,16 +854,16 @@ sub processingEnd {
 			deleteFiles($execute{uploadFilesToDelete},1) if $execute{uploadFilesToDelete};
 			$execute{processEnd}=1;
 		} else {
-			# reset hadErrors flag and successfullyDone
+			# reset hadErrors flag, successfullyDone (only for planned retries) and filenames/filesProcessed
 			unless (@loads) {
 				$common{process}{hadErrors} = 0;
-				$common{process}{successfullyDone} = "";
+				$common{process}{successfullyDone} = "" if $common{task}{plannedUntil}; # only reset for planned retries
 				delete($common{process}{filesProcessed});
 				delete($common{process}{filenames});
 			}
 			for (@loads) {
 				$_->{process}{hadErrors} = 0;
-				$_->{process}{successfullyDone} = "";
+				$_->{process}{successfullyDone} = "" if $common{task}{plannedUntil}; # only reset for planned retries
 				delete($_->{process}{filesProcessed});
 				delete($_->{process}{filenames});
 			}
@@ -1329,6 +1342,10 @@ calendar for business days in central logcheck/errmail sending. builtin calendar
 =item logs_to_be_ignored_in_nonprod
 
 regular expression to specify logs to be ignored in central logcheck/errmail sending
+
+=item logprefixForLastLogfile
+
+prefix for previous (day) logs to be set in error mail (link), if not given, defaults to get_curdate(). In case Log::Dispatch::FileRotate is used as the File Appender in Log4perl config, the previous log is identified with <logname>.1
 
 =item logRootPath
 
@@ -2052,7 +2069,7 @@ used for "wait with execution for first business date", either this is a calenda
 
 =head1 COPYRIGHT
 
-Copyright (c) 2023 Roland Kapl
+Copyright (c) 2024 Roland Kapl
 
 All rights reserved.  This program is free software; you can
 redistribute it and/or modify it under the same terms as Perl itself.

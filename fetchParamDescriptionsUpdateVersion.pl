@@ -1,4 +1,4 @@
-use strict; use feature 'unicode_strings';
+use strict; use feature 'unicode_strings'; use Time::localtime;
 # enter new version to update all modules with
 print "new version (empty to skip and only fetch param descriptions into Wrap.pm):";
 my $newVersion = <STDIN>;
@@ -37,16 +37,20 @@ print "updating version for Makefile.PL\n";
 $data =~ s/', version => [\d\.]+},/', version => $newVersion},/g if $newVersion;
 write_file("Makefile.PL", $data);
 
+my $curYear = localtime->year()+1900;
+print $curYear;
 my $data = read_file ("lib/EAI/Wrap.pm");
 print "updating version and API descriptions for Wrap.pm\n";
 $data =~ s/^(.*?)=head2 CONFIGURATION REFERENCE\n\n(.*?)=head1 COPYRIGHT(.*?)$/$1=head2 CONFIGURATION REFERENCE\n\n${insertIntoEAIWrap}=head1 COPYRIGHT$3/s;
 $data =~ s/^package EAI::(.*?) (.*?);\n(.*?)/package EAI::$1 $newVersion;\n$3/s if $newVersion;
+$data =~ s/Copyright \(c\) (\d{4}) Roland Kapl/Copyright \(c\) $curYear Roland Kapl/s;
 write_file("lib/EAI/Wrap.pm", $data);
 
 for my $libfile ("Common","File","FTP","DB","DateUtil") {
 	print "updating version for $libfile\n";
 	my $data = read_file ("lib/EAI/$libfile.pm");
 	$data =~ s/^package EAI::(.*?) (.*?);\n(.*?)/package EAI::$1 $newVersion;\n$3/s if $newVersion;
+	$data =~ s/Copyright \(c\) (\d{4}) Roland Kapl/Copyright \(c\) $curYear Roland Kapl/s;
 	write_file("lib/EAI/$libfile.pm", $data);
 }
 print "enter to finish.";

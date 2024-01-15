@@ -48,3 +48,5 @@
 	- checkLogExist.pl: fixed alreadyProcessedLogErrors check, included checkFiles into getFilesFromFTP, getLocalFiles and redoFiles (not necessary to call in scripts separately), check/compare task{execOnly} with process{onlyExecFor} only if process{onlyExecFor} was set (empty = always executed).
 1.906  Thu Dec 21 00:00:00 2023
 	- detangled execute parameters, fixed problem with deleteFiles & uploaded Files on redo, added provides to meta info.
+1.907  Mon Jan 15 00:00:00 2024
+	- support for Log::Dispatch::FileRotate in error mails (links to log files), generalization of previous log-link using config parameter logprefixForLastLogfile, always log newDB connection in newDBH, fixed error recovery in getFilesFromFTP/checkFiles, reset data in case of error retries having erroneous data in readFileData, fixed unnecessary calls for filesToArchive/filesToRemove on process end, fixed mail sending addressing on error recovery, fixed reset of successfullyDone (only for planned retries).

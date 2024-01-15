@@ -1,4 +1,4 @@
-package EAI::Common 1.906;
+package EAI::Common 1.907;
 
 use strict; use feature 'unicode_strings'; use warnings; no warnings 'uninitialized';
 use Exporter qw(import); use EAI::DateUtil; use Data::Dumper qw(Dumper); use Getopt::Long qw(:config no_ignore_case); use Log::Log4perl qw(get_logger); use MIME::Lite (); use Scalar::Util qw(looks_like_number);
@@ -29,6 +29,7 @@ my %hashCheck = (
 		historyFolderUpload => {}, # ref to hash {"scriptname.pl + optional addToScriptName" => "folder"}, folders where uploaded files are historized, lookup key as in checkLookup, default in "" => "defaultfolder"
 		logCheckHoliday => "", # calendar for business days in central logcheck/errmail sending. builtin calendars are AT (Austria), TG (Target), UK (United Kingdom) and WE (for only weekends). Calendars can be added with EAI::DateUtil::addCalendar
 		logs_to_be_ignored_in_nonprod => qr//, # regular expression to specify logs to be ignored in central logcheck/errmail sending
+		logprefixForLastLogfile => sub {}, # prefix for previous (day) logs to be set in error mail (link), if not given, defaults to get_curdate(). In case Log::Dispatch::FileRotate is used as the File Appender in Log4perl config, the previous log is identified with <logname>.1
 		logRootPath => {}, # ref to hash {"scriptname.pl + optional addToScriptName" => "folder"}, paths to log file root folders (environment is added to that if non production), lookup key as checkLookup, default in "" => "defaultfolder"
 		prodEnvironmentInSeparatePath => 1, # set to 1 if the production scripts/logs etc. are in a separate Path defined by folderEnvironmentMapping (prod=root/Prod, test=root/Test, etc.), set to 0 if the production scripts/logs are in the root folder and all other environments are below that folder (prod=root, test=root/Test, etc.)
 		redoDir => {}, # ref to hash {"scriptname.pl + optional addToScriptName" => "folder"}, folders where files for redo are contained, lookup key as checkLookup, default in "" => "defaultfolder"
@@ -463,8 +464,9 @@ sub checkParam ($$) {
 # path of logfile and path of yesterdays logfile (after rolling) - getLogFPathForMail and getLogFPath can be used in site-wide log.config
 our ($LogFPath, $LogFPathDayBefore);
 sub getLogFPathForMail {
-	return 'file://'.$LogFPath.', or '.'file://'.$LogFPathDayBefore;
+	return 'file://'.$LogFPath.($LogFPathDayBefore ? ', or '.'file://'.$LogFPathDayBefore : '');
 };
+# called by log4perl.appender.FILE.filename = ... so always provide the logfile path here
 sub getLogFPath {
 	return $LogFPath;
 };
@@ -484,13 +486,14 @@ sub setErrSubject ($) {
 
 # setup logging for Log4perl
 sub setupLogging {
-	my $prodEnvironmentInSeparatePath = ($config{checkLookup}{$execute{scriptname}.$execute{addToScriptName}}{prodEnvironmentInSeparatePath} ne "" ? $config{checkLookup}{$execute{scriptname}.$execute{addToScriptName}}{prodEnvironmentInSeparatePath} : $config{prodEnvironmentInSeparatePath});
+	my $extendedScriptname = $execute{scriptname}.$execute{addToScriptName};
+	my $prodEnvironmentInSeparatePath = ($config{checkLookup}{$extendedScriptname}{prodEnvironmentInSeparatePath} ne "" ? $config{checkLookup}{$extendedScriptname}{prodEnvironmentInSeparatePath} : $config{prodEnvironmentInSeparatePath});
 
 	# get logRootPath, historyFolder, historyFolderUpload and redoDir from lookups in config.
 	# if they are not in the script home directory (having an absolute path) then build environment-path separately for end folder (script home directory is already in its environment)
 	for my $foldKey ("redoDir","logRootPath","historyFolder","historyFolderUpload") {
 		warn ("\$config{$foldKey} is not a hash, cannot get $foldKey from it !") if (ref($config{$foldKey}) ne "HASH");
-		my $folder = $config{$foldKey}{$execute{scriptname}.$execute{addToScriptName}} if (ref($config{$foldKey}) eq "HASH");
+		my $folder = $config{$foldKey}{$extendedScriptname} if (ref($config{$foldKey}) eq "HASH");
 		my $defaultFolder;
 		if (!$folder) {
 			$folder = $config{$foldKey}{""}; # take default, if no lookup defined for script
@@ -519,19 +522,23 @@ sub setupLogging {
 	# if logFolder doesn't exist, warn and log to $execute{homedir}.
 	my $noLogFolderErr;
 	if (! -e $logFolder) {
-		$noLogFolderErr = "can't log to logfolder $logFolder (set specially for script with \$config{logRootPath}{".$execute{scriptname}.$execute{addToScriptName}."} or default with \$config{logRootPath}{\"\"}), folder doesn't exist. Setting to $execute{homedir}";
+		$noLogFolderErr = "can't log to logfolder $logFolder (set specially for script with \$config{logRootPath}{$extendedScriptname} or default with \$config{logRootPath}{\"\"}), folder doesn't exist. Setting to $execute{homedir}";
 		$logFolder = $execute{homedir};
 	}
-	$LogFPath = $logFolder."/".$execute{scriptname}.$execute{addToScriptName}.".log";
-	$LogFPathDayBefore = $logFolder."/".get_curdate().".". $execute{scriptname}.$execute{addToScriptName}.".log"; # if mail is watched next day, show the rolled file here
+	$LogFPath = $logFolder."/".$extendedScriptname.".log";
 	$logConfig = $EAI_WRAP_CONFIG_PATH."/".$execute{env}."/log.config"; # environment dependent log config, Prod is either in EAI_WRAP_CONFIG_PATH/.$execute{env} or EAI_WRAP_CONFIG_PATH
 	$logConfig = $EAI_WRAP_CONFIG_PATH."/log.config" if (! -e $logConfig); # fall back to main config log.config
 	die "log.config neither in $logConfig nor in ".$EAI_WRAP_CONFIG_PATH."/log.config" if (! -e $logConfig);
 	Log::Log4perl::init($logConfig);
 	my $logger = get_logger();
-	$logger->warn($noLogFolderErr) if $noLogFolderErr;
-	if (Log::Log4perl->appenders()->{"FILE"} and Log::Log4perl->appenders()->{"FILE"}->{"appender"}->{"fh"}) {
-		Log::Log4perl->appenders()->{"FILE"}->{"appender"}->{"fh"}->autoflush;
+	$logger->warn($noLogFolderErr) if $noLogFolderErr; # log later when emergency log folder was set...
+	my $logAppender = Log::Log4perl->appenders()->{"FILE"}->{"appender"};
+	if ($logAppender) {
+		my $logprefix = get_curdate();
+		eval {$logprefix = $config{logprefixForLastLogfile}->()} if $config{logprefixForLastLogfile};
+		$logger->warn("error getting logprefix from \$config{logprefixForLastLogfile}: $@") if $@;
+		# if mail is watched next day, the rolled file is in $LogFPathDayBefore. Depending on appender, either append ".1" to filename or prepend $logprefix to it (default assumed date rotator, with current date in format yyyymmdd)
+		$LogFPathDayBefore = $logFolder."/".($logAppender->isa("Log::Dispatch::FileRotate") ? "" : $logprefix.".").$extendedScriptname.".log".($logAppender->isa("Log::Dispatch::FileRotate") ? ".1" : "");
 	}
 	if ($config{smtpServer}) {
 		# remove explicitly enumerated lookups (1:scriptname.pl, 2:scriptname.pl), the first such entry will be taken here
@@ -546,8 +553,8 @@ sub setupLogging {
 		# configure err mail sending
 		MIME::Lite->send('smtp', $config{smtpServer}, AuthUser=>$config{sensitive}{smtpAuth}{user}, AuthPass=>$config{sensitive}{smtpAuth}{pwd}, Timeout=>$config{smtpTimeout});
 		# get email from central log error handling $config{checkLookup}{<>};
-		$execute{errmailaddress} = $config{checkLookup}{$execute{scriptname}.$execute{addToScriptName}}{errmailaddress}; # errmailaddress for the task script
-		$execute{errmailsubject} = $config{checkLookup}{$execute{scriptname}.$execute{addToScriptName}}{errmailsubject}; # errmailsubject for the task script
+		$execute{errmailaddress} = $config{checkLookup}{$extendedScriptname}{errmailaddress}; # errmailaddress for the task script
+		$execute{errmailsubject} = $config{checkLookup}{$extendedScriptname}{errmailsubject}; # errmailsubject for the task script
 		$execute{errmailaddress} = $config{errmailaddress} if !$execute{errmailaddress};
 		$execute{errmailsubject} = $config{errmailsubject} if !$execute{errmailsubject};
 		$execute{errmailaddress} = $config{testerrmailaddress} if $execute{envraw};
@@ -559,7 +566,7 @@ sub setupLogging {
 			if ($execute{envraw}) {
 				$logger->error("no errmailaddress found, no entry found in \$config{testerrmailaddress}");
 			} else {
-				$logger->error("no errmailaddress found for ".$execute{scriptname}.$execute{addToScriptName}.", no entry found in \$config{checkLookup}{$execute{scriptname}$execute{addToScriptName}}");
+				$logger->error("no errmailaddress found for ".$extendedScriptname.", no entry found in \$config{checkLookup}{$extendedScriptname}");
 			}
 		}
 		setErrSubject("Setting up EAI::Wrap"); # general context after logging initialization: setup of EAI::Wrap by script
@@ -888,7 +895,7 @@ Example:
 
 =head1 COPYRIGHT
 
-Copyright (c) 2023 Roland Kapl
+Copyright (c) 2024 Roland Kapl
 
 All rights reserved.  This program is free software; you can
 redistribute it and/or modify it under the same terms as Perl itself.
