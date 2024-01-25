@@ -1,4 +1,4 @@
-package EAI::Common 1.907;
+package EAI::Common 1.908;
 
 use strict; use feature 'unicode_strings'; use warnings; no warnings 'uninitialized';
 use Exporter qw(import); use EAI::DateUtil; use Data::Dumper qw(Dumper); use Getopt::Long qw(:config no_ignore_case); use Log::Log4perl qw(get_logger); use MIME::Lite (); use Scalar::Util qw(looks_like_number);
@@ -532,7 +532,7 @@ sub setupLogging {
 	Log::Log4perl::init($logConfig);
 	my $logger = get_logger();
 	$logger->warn($noLogFolderErr) if $noLogFolderErr; # log later when emergency log folder was set...
-	my $logAppender = Log::Log4perl->appenders()->{"FILE"}->{"appender"};
+	my $logAppender = Log::Log4perl->appenders()->{"FILE"}->{"appender"} if Log::Log4perl->appenders() and Log::Log4perl->appenders()->{"FILE"};
 	if ($logAppender) {
 		my $logprefix = get_curdate();
 		eval {$logprefix = $config{logprefixForLastLogfile}->()} if $config{logprefixForLastLogfile};

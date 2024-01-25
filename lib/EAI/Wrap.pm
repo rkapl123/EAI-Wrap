@@ -1,4 +1,4 @@
-package EAI::Wrap 1.907;
+package EAI::Wrap 1.908;
 
 use strict; use feature 'unicode_strings'; use warnings;
 use Exporter qw(import); use Data::Dumper qw(Dumper); use File::Copy qw(copy move); use Cwd qw(chdir); use Archive::Extract ();
@@ -15,7 +15,7 @@ BEGIN {
 };
 use EAI::Common; use EAI::DateUtil; use EAI::DB; use EAI::File; use EAI::FTP;
 
-our @EXPORT = qw(%common %config %execute @loads @optload %opt removeFilesinFolderOlderX openDBConn openFTPConn redoFiles getLocalFiles getFilesFromFTP getFiles checkFiles extractArchives getAdditionalDBData readFileData dumpDataIntoDB markProcessed writeFileFromDB putFileInLocalDir markForHistoryDelete uploadFileToFTP uploadFileCMD uploadFile processingEnd processingPause moveFilesToHistory deleteFiles
+our @EXPORT = qw(%common %config %execute @loads @optload %opt removeFilesinFolderOlderX openDBConn openFTPConn redoFiles getLocalFiles getFilesFromFTP getFiles checkFiles extractArchives getAdditionalDBData readFileData dumpDataIntoDB markProcessed writeFileFromDB putFileInLocalDir markForHistoryDelete uploadFileToFTP uploadFileCMD uploadFile processingEnd processingPause processingContinues moveFilesToHistory deleteFiles
 monthsToInt intToMonths addLocaleMonths get_curdate get_curdatetime get_curdate_dot formatDate formatDateFromYYYYMMDD get_curdate_dash get_curdate_gen get_curdate_dash_plus_X_years get_curtime get_curtime_HHMM get_lastdateYYYYMMDD get_lastdateDDMMYYYY is_first_day_of_month is_last_day_of_month get_last_day_of_month weekday is_weekend is_holiday is_easter addCalendar first_week first_weekYYYYMMDD last_week last_weekYYYYMMDD convertDate convertDateFromMMM convertDateToMMM convertToDDMMYYYY addDays addDaysHol addMonths subtractDays subtractDaysHol convertcomma convertToThousendDecimal get_dateseries parseFromDDMMYYYY parseFromYYYYMMDD convertEpochToYYYYMMDD make_time formatTime get_curtime_epochs localtime timelocal_modern
 newDBH beginWork commit rollback readFromDB readFromDBHash doInDB storeInDB deleteFromDB updateInDB getConn setConn
 readText readExcel readXML writeText writeExcel
@@ -50,6 +50,7 @@ sub INIT {
 	readAdditionalConfig();
 	$execute{failcount}=0;
 	EAI::Common::setupLogging();
+	EAI::Common::setErrSubject("starting process");
 }
 
 # separate reading of config for refreshing in processEnd, optional first parameter to allow reading of both main and additional environments config
@@ -73,14 +74,6 @@ sub readAdditionalConfig (;$) {
 		}
 		die("Error parsing config{executeOnInit} ".(ref($config{executeOnInit}) eq "CODE" ? "defined sub" : "'".$config{executeOnInit}."'").": $@") if $@;
 	}
-}
-
-# remove all files in FTP server folders that are older than a given day/month/year
-sub removeFilesinFolderOlderX ($) {
-	my $arg = shift;
-	my $logger = get_logger();
-	my ($FTP) = EAI::Common::extractConfigs("Cleaning of Archive folders",$arg,"FTP");
-	return EAI::FTP::removeFilesOlderX($FTP);
 }
 
 # open a DB connection
@@ -163,6 +156,20 @@ sub openFTPConn ($;$) {
 	};
 	$process->{successfullyDone}.="openFTPConn".$hostname;
 	return 1; 
+}
+
+# remove all files in FTP server folders that are older than a given day/month/year
+sub removeFilesinFolderOlderX ($) {
+	my $arg = shift;
+	my $logger = get_logger();
+	my ($FTP,$process) = EAI::Common::extractConfigs("Cleaning of Archive folders",$arg,"FTP","process");
+	return 1 if $process->{successfullyDone} and $process->{successfullyDone} =~ /removeFilesOlderX/ and $execute{retryBecauseOfError};
+	if (EAI::FTP::removeFilesOlderX($FTP)) {
+		$process->{successfullyDone}.="removeFilesOlderX";
+		return 1;
+	} else {
+		return 0;
+	}
 }
 
 # redo file from redo directory if specified (used in getLocalFile and getFileFromFTP)
@@ -874,9 +881,21 @@ sub processingEnd {
 	} else {
 		$logger->info("------> finished $execute{scriptname}");
 	}
+	return $execute{processEnd};
 }
 
-
+my $processingInitialized = 0; # specifies that the process was initialized
+# wrapper for processingEnd to be used at the beginning of the process loop
+sub processingContinues {
+	if ($processingInitialized) {
+		# second start: process loop finished, normal call to processingEnd() and return its inverted result
+		return !processingEnd();
+	} else {
+		# at the first start always return true to enter the process loop
+		$processingInitialized = 1;
+		return 1;
+	}
+}
 
 # helps to calculate next start time
 sub calcNextStartTime ($) {
@@ -1039,7 +1058,7 @@ EAI::Wrap - framework for easy creation of Enterprise Application Integration ta
     setupEAIWrap();
     openDBConn(\%common) or die;
     openFTPConn(\%common) or die;
-    while (!$execute{processEnd}) {
+    while (processingContinues()) {
     	for my $load (@loads) {
     		if (getFilesFromFTP($load)) {
     			readFileData($load);
@@ -1047,7 +1066,6 @@ EAI::Wrap - framework for easy creation of Enterprise Application Integration ta
     			markProcessed($load);
     		}
     	}
-    	processingEnd();
     }
 
 =head1 DESCRIPTION
@@ -1125,7 +1143,7 @@ hash of parameters for current task execution which is not set by the user but c
 
 Detailed information about the several parameters used can be found in section L<execute|/execute> of the configuration parameter reference, there are parameters for files (L<filesProcessed|/filesProcessed>, L<filesToDelete|/filesToDelete>, L<filesToMoveinHistory|/filesToMoveinHistory>, L<filesToMoveinHistoryUpload|/filesToMoveinHistoryUpload>, L<retrievedFiles|/retrievedFiles>) and L<uploadFilesToDelete|/uploadFilesToDelete>, directories (L<homedir|/homedir>, L<historyFolder|/historyFolder>, L<historyFolderUpload|/historyFolderUpload> and L<redoDir|/redoDir>), process controlling parameters (L<failcount|/failcount>, L<firstRunSuccess|/firstRunSuccess>, L<retryBecauseOfError|/retryBecauseOfError>, L<retrySeconds|/retrySeconds> and L<processEnd|/processEnd>).
 
-Retrying with checking C<$execute{processEnd}> (set during C<processingEnd()>) can happen because of two reasons: First, due to C<task =E<gt> {plannedUntil =E<gt> "HHMM"}> being set to a time until the task has to be retried, however this is done at most until midnight. Second, because an error occurred, in such a case C<$process-E<gt>{hadErrors}> is set for each load that failed. C<$process{successfullyDone}> is also important in this context as it prevents the repeated run of following API procedures if the loads didn't have an error during their execution:
+Retrying with checking C<$execute{processEnd}> (set during C<processingEnd()>, combining this call and check can be done in loop header at start with C<processingContinues()>) can happen because of two reasons: First, due to C<task =E<gt> {plannedUntil =E<gt> "HHMM"}> being set to a time until the task has to be retried, however this is done at most until midnight. Second, because an error occurred, in such a case C<$process-E<gt>{hadErrors}> is set for each load that failed. C<$process{successfullyDone}> is also important in this context as it prevents the repeated run of following API procedures if the loads didn't have an error during their execution:
 
 L<openDBConn|/openDBConn>, L<openFTPConn|/openFTPConn>, L<getLocalFiles|/getLocalFiles>, L<getFilesFromFTP|/getFilesFromFTP>, L<getFiles|/getFiles>, L<extractArchives|/extractArchives>, L<getAdditionalDBData|/getAdditionalDBData>, L<readFileData|/readFileData>, L<dumpDataIntoDB|/dumpDataIntoDB>, L<writeFileFromDB|/writeFileFromDB>, L<putFileInLocalDir|/putFileInLocalDir>, L<uploadFileToFTP|/uploadFileToFTP>, L<uploadFileCMD|/uploadFileCMD>, and L<uploadFile|/uploadFile>.
 
@@ -1267,11 +1285,16 @@ combines above two procedures in a general procedure to upload files via FTP or 
 
 =item processingEnd
 
-final processing steps for processEnd (cleanup, FTP removal/archiving) or retry after pausing. No context argument as this always depends on all loads and/or the common definition (always runs in a faulting loop)
+final processing steps for process ending (cleanup, FTP removal/archiving) or retry after pausing. No context argument as this always depends on all loads and/or the common definition (always runs in a faulting loop). Returns true if process ended and false if not. Using this as a check also works for do .. while or do .. until loops.
 
 =item processingPause ($)
 
 generally available procedure for pausing processing, argument $pauseSeconds gives the delay
+
+=item processingContinues
+
+Alternative and compact way to combine call to C<processingEnd()> and check of C<$execute{processEnd}> in one go in a while or until loop header. Returns true if process continues and false if not. Caveat: This doesn't works for do .. while or do .. until loops!
+Instead of checking C<processingEnd()> and C<processingContinues()>, a check of C<!$execute{processEnd}> can be done in the while or until header with a call to C<processingEnd()> at the end of the loop.
 
 =item moveFilesToHistory (;$)
 
