@@ -53,4 +53,4 @@
 1.908  Thu Jan 25 00:00:00 2024
 	- fixed checking for file logAppender in setupLogging; start with error subject "starting process"; added processingContinues; processingEnd returns $execute{processEnd} as result now
 1.909  Fri Feb 17 00:00:00 2024
-	- added port parameter to FTP config, reset $EAI::Common::alreadySent on repeat processing, added workaround for utf8 problems with Win32::Console::ANSI, refactored readConfigs and ddoExecuteOnInit on INIT
+	- added port parameter to FTP config, reset $EAI::Common::alreadySent on repeat processing, added workaround for utf8 problems with Win32::Console::ANSI, refactored readConfigs and doExecuteOnInit on INIT
