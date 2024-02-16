@@ -38,7 +38,6 @@ $data =~ s/', version => [\d\.]+},/', version => $newVersion},/g if $newVersion;
 write_file("Makefile.PL", $data);
 
 my $curYear = localtime->year()+1900;
-print $curYear;
 my $data = read_file ("lib/EAI/Wrap.pm");
 print "updating version and API descriptions for Wrap.pm\n";
 $data =~ s/^(.*?)=head2 CONFIGURATION REFERENCE\n\n(.*?)=head1 COPYRIGHT(.*?)$/$1=head2 CONFIGURATION REFERENCE\n\n${insertIntoEAIWrap}=head1 COPYRIGHT$3/s;

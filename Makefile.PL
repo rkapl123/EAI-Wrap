@@ -40,12 +40,12 @@ WriteMakefile(
 	META_MERGE => {
 		"meta-spec" => { version => 2 },
 		provides => {
-			'EAI::Wrap' => {file => 'lib/EAI/Wrap.pm', version => 1.908},
-			'EAI::Common' => {file => 'lib/EAI/Common.pm', version => 1.908},
-			'EAI::FTP' => {file => 'lib/EAI/FTP.pm', version => 1.908},
-			'EAI::File' => {file => 'lib/EAI/File.pm', version => 1.908},
-			'EAI::DB' => {file => 'lib/EAI/DB.pm', version => 1.908},
-			'EAI::DateUtil' => {file => 'lib/EAI/DateUtil.pm', version => 1.908},
+			'EAI::Wrap' => {file => 'lib/EAI/Wrap.pm', version => 1.909},
+			'EAI::Common' => {file => 'lib/EAI/Common.pm', version => 1.909},
+			'EAI::FTP' => {file => 'lib/EAI/FTP.pm', version => 1.909},
+			'EAI::File' => {file => 'lib/EAI/File.pm', version => 1.909},
+			'EAI::DB' => {file => 'lib/EAI/DB.pm', version => 1.909},
+			'EAI::DateUtil' => {file => 'lib/EAI/DateUtil.pm', version => 1.909},
 		},
 		resources => {
 			repository => {

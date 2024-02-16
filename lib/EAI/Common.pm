@@ -1,4 +1,4 @@
-package EAI::Common 1.908;
+package EAI::Common 1.909;
 
 use strict; use feature 'unicode_strings'; use warnings; no warnings 'uninitialized';
 use Exporter qw(import); use EAI::DateUtil; use Data::Dumper qw(Dumper); use Getopt::Long qw(:config no_ignore_case); use Log::Log4perl qw(get_logger); use MIME::Lite (); use Scalar::Util qw(looks_like_number);
@@ -97,6 +97,7 @@ my %hashCheck = (
 		lookups => {}, # similar to $config{sensitive}, a hash lookup table ({"prefix" => {remoteHost=>""},...} or {"prefix" => {remoteHost=>{Prod => "", Test => ""}},...}) for centrally looking up DSN Settings depending on $DB{prefix}. Overrides $DB{DSN} set in config, but is overriden by script-level settings in %common.
 		noDBTransaction => 1, # don't use a DB transaction for dumpDataIntoDB
 		noDumpIntoDB => 1, # if files from this load should not be dumped to the database
+		port => {}, # port to be added to server in environment hash lookup: {Prod => "", Test => ""}
 		postDumpExecs => [], # array for execs done in dumpDataIntoDB after postDumpProcessing and before commit/rollback: [{execs => ['',''], condition => ''}]. doInDB all execs if condition (evaluated string or anonymous sub: condition => sub {...}) is fulfilled
 		postDumpProcessing => "", # done in dumpDataIntoDB after storeInDB, execute perl code in postDumpProcessing (evaluated string or anonymous sub: postDumpProcessing => sub {...})
 		postReadProcessing => "", # done in writeFileFromDB after readFromDB, execute perl code in postReadProcessing (evaluated string or anonymous sub: postReadProcessing => sub {...})
@@ -471,8 +472,8 @@ sub getLogFPath {
 	return $LogFPath;
 };
 
-# MailFilter is used for filtering error logs (called in log.config) if error was already sent by mail (otherwise floods)...
-my $alreadySent = 0;
+# MailFilter is used for filtering error logs (called in log.config) if a log error was already sent by mail (otherwise floods)...this is reset on retry because of error
+our $alreadySent = 0;
 sub MailFilter {
 	my %p = @_;
 	return (!$alreadySent and ($p{log4p_level} eq "ERROR" or $p{log4p_level} eq "FATAL") ? $alreadySent = 1 : 0);
@@ -530,6 +531,12 @@ sub setupLogging {
 	$logConfig = $EAI_WRAP_CONFIG_PATH."/log.config" if (! -e $logConfig); # fall back to main config log.config
 	die "log.config neither in $logConfig nor in ".$EAI_WRAP_CONFIG_PATH."/log.config" if (! -e $logConfig);
 	Log::Log4perl::init($logConfig);
+	# workaround for utf8 problems with Win32::Console::ANSI
+	if ($^O =~ /MSWin/) {
+		my $test = \*STDOUT; bless $test, 'IO::Handle';
+		my $testcopy = IO::Handle->new_from_fd($test, ">");
+		$test->fdopen($testcopy, ">");
+	}
 	my $logger = get_logger();
 	$logger->warn($noLogFolderErr) if $noLogFolderErr; # log later when emergency log folder was set...
 	my $logAppender = Log::Log4perl->appenders()->{"FILE"}->{"appender"} if Log::Log4perl->appenders() and Log::Log4perl->appenders()->{"FILE"};

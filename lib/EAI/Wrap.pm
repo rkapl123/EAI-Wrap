@@ -1,4 +1,4 @@
-package EAI::Wrap 1.908;
+package EAI::Wrap 1.909;
 
 use strict; use feature 'unicode_strings'; use warnings;
 use Exporter qw(import); use Data::Dumper qw(Dumper); use File::Copy qw(copy move); use Cwd qw(chdir); use Archive::Extract ();
@@ -32,9 +32,7 @@ sub INIT {
 	$EAI_WRAP_CONFIG_PATH =~ s/\\/\//g;
 	$EAI_WRAP_SENS_CONFIG_PATH =~ s/\\/\//g;
 	print STDOUT "EAI_WRAP_CONFIG_PATH: ".($EAI_WRAP_CONFIG_PATH ? $EAI_WRAP_CONFIG_PATH : "not set").", EAI_WRAP_SENS_CONFIG_PATH: ".($EAI_WRAP_SENS_CONFIG_PATH ? $EAI_WRAP_SENS_CONFIG_PATH : "not set")."\n";
-	EAI::Common::readConfigFile($EAI_WRAP_CONFIG_PATH."/site.config") if -e $EAI_WRAP_CONFIG_PATH."/site.config";
-	EAI::Common::readConfigFile($_) for sort glob($EAI_WRAP_CONFIG_PATH."/additional/*.config");
-	EAI::Common::readConfigFile($_) for sort glob($EAI_WRAP_SENS_CONFIG_PATH."/*.config");
+	readConfigs();
 	
 	$execute{homedir} = File::Basename::dirname(File::Spec->rel2abs((caller(0))[1])); # folder, where the main script is being executed.
 	$execute{scriptname} = File::Basename::fileparse((caller(0))[1]);
@@ -43,30 +41,35 @@ sub INIT {
 	$execute{envraw} = $config{folderEnvironmentMapping}{$homedirnode};
 	if ($execute{envraw}) {
 		$execute{env} = $execute{envraw};
+		readConfigs($execute{envraw}); # read configs again for different environment
 	} else {
 		# if not configured, use default mapping (usually ''=>"Prod" for production)
 		$execute{env} = $config{folderEnvironmentMapping}{''};
 	}
-	readAdditionalConfig();
+
+	EAI::Common::getOptions(); # getOptions before logging setup as centralLogHandling depends on interactive options passed. Also need options to be present for executeOnInit
+	doExecuteOnInit();
 	$execute{failcount}=0;
 	EAI::Common::setupLogging();
 	EAI::Common::setErrSubject("starting process");
 }
 
-# separate reading of config for refreshing in processEnd, optional first parameter to allow reading of both main and additional environments config
-sub readAdditionalConfig (;$) {
-	if ($_[0]) {
-		EAI::Common::readConfigFile($EAI_WRAP_CONFIG_PATH."/site.config") if -e $EAI_WRAP_CONFIG_PATH."/site.config";
-		EAI::Common::readConfigFile($_) for sort glob($EAI_WRAP_CONFIG_PATH."/additional/*.config");
-		EAI::Common::readConfigFile($_) for sort glob($EAI_WRAP_SENS_CONFIG_PATH."/*.config");
+# read configs from EAI_WRAP_CONFIG_PATH/site.config, EAI_WRAP_CONFIG_PATH/additional/*.config (if existing) and EAI_WRAP_SENS_CONFIG_PATH/*.config (if existing)
+# if argument envraw given, read EAI_WRAP_CONFIG_PATH/envraw/site.config, and additionally to above EAI_WRAP_CONFIG_PATH/envraw/additional/*.config (if existing) and EAI_WRAP_SENS_CONFIG_PATH/envraw/*.config (if existing), because config is set new by reading EAI_WRAP_CONFIG_PATH/envraw/site.config
+sub readConfigs (;$) {
+	my $envraw = ($_[0] ? $_[0]."/" : "");
+	EAI::Common::readConfigFile("$EAI_WRAP_CONFIG_PATH/${envraw}site.config") if -e "$EAI_WRAP_CONFIG_PATH/${envraw}site.config";
+	EAI::Common::readConfigFile($_) for sort glob("$EAI_WRAP_CONFIG_PATH/additional/*.config");
+	EAI::Common::readConfigFile($_) for sort glob("$EAI_WRAP_SENS_CONFIG_PATH/*.config");
+	if ($envraw) {
+		EAI::Common::readConfigFile($_) for sort glob("$EAI_WRAP_CONFIG_PATH/${envraw}additional/*.config");
+		EAI::Common::readConfigFile($_) for sort glob("$EAI_WRAP_SENS_CONFIG_PATH/${envraw}*.config");
 	}
-	if ($execute{envraw}) { # for folderEnvironmentMapping configured environments read separate configs, if existing
-		EAI::Common::readConfigFile($EAI_WRAP_CONFIG_PATH."/".$execute{envraw}."/site.config") if -e $EAI_WRAP_CONFIG_PATH."/".$execute{envraw}."/site.config";
-		EAI::Common::readConfigFile($_) for sort glob($EAI_WRAP_CONFIG_PATH."/".$execute{envraw}."/additional/*.config");
-		EAI::Common::readConfigFile($_) for sort glob($EAI_WRAP_SENS_CONFIG_PATH."/".$execute{envraw}."/*.config");
-	}
-	EAI::Common::getOptions() if !$_[0]; # getOptions before logging setup as centralLogHandling depends on interactive options passed. Also need options to be present for executeOnInit
+}
+
+sub doExecuteOnInit () {
 	if ($config{executeOnInit}) {
+		print STDOUT "doing executeOnInit\n";
 		if (ref($config{executeOnInit}) eq "CODE") {
 			eval {$config{executeOnInit}->()};
 		} else {
@@ -835,9 +838,10 @@ sub processingEnd {
 		$logger->debug("processingEnd: process failed, \$retrySeconds $retrySeconds, \$execute{failcount}: $execute{failcount}");
 	}
 	unless ($execute{processEnd}) {
-		# refresh config for getting changes, also check for changes in logging configuration
+		# refresh config for getting changes, also refresh changes in logging configuration
 		$logger->info("process has not ended, refreshing configs, planning next execution");
-		readAdditionalConfig(1);
+		readConfigs($execute{envraw});
+		doExecuteOnInit();
 		Log::Log4perl::init($EAI::Common::logConfig);
 		# pausing processing/retry
 		$retrySeconds = 60 if !$retrySeconds; # sanity fallback if retrySecondsErr not set
@@ -881,6 +885,8 @@ sub processingEnd {
 	} else {
 		$logger->info("------> finished $execute{scriptname}");
 	}
+	# reset error mail filter..
+	$EAI::Common::alreadySent = 0;
 	return $execute{processEnd};
 }
 
@@ -1593,6 +1599,10 @@ don't use a DB transaction for dumpDataIntoDB
 =item noDumpIntoDB
 
 if files from this load should not be dumped to the database
+
+=item port
+
+port to be added to server in environment hash lookup: {Prod => "", Test => ""}
 
 =item postDumpExecs
 
