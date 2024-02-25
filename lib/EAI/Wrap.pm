@@ -1,4 +1,4 @@
-package EAI::Wrap 1.910;
+package EAI::Wrap 1.911;
 
 use strict; use feature 'unicode_strings'; use warnings;
 use Exporter qw(import); use Data::Dumper qw(Dumper); use File::Copy qw(copy move); use Cwd qw(chdir); use Archive::Extract ();
@@ -1092,17 +1092,7 @@ EAI::Wrap - framework for easy creation of Enterprise Application Integration ta
     	}
     );
     setupEAIWrap();
-    openDBConn(\%common) or die;
-    openFTPConn(\%common) or die;
-    while (processingContinues()) {
-    	for my $load (@loads) {
-    		if (getFilesFromFTP($load)) {
-    			readFileData($load);
-    			dumpDataIntoDB($load);
-    			markProcessed($load);
-    		}
-    	}
-    }
+    standardLoop();
 
 =head1 DESCRIPTION
 
@@ -1319,6 +1309,25 @@ argument $arg (ref to current load or common)
 
 combines above two procedures in a general procedure to upload files via FTP or CMD or to put into local dir. Arguments are fetched from common or loads[i], using File and process parameters
 
+=item standardLoop (;$)
+
+executes the given configuration in a standard extract/transform/load loop (shown simplified below), depending on whether loads are given an additional loop is done for all loads within the @loads list. 
+If the definition only contains the common hash then there is no loop. The additional optional parameter $getAddtlDBData activates getAdditionalDBData before reading in file data.
+No other processing is possible (creating files from data, uploading, etc.)
+
+  while (processingContinues()) {
+    openDBConn(\%common,1); # only done if DB{DSN} is given to avoid errors.
+    openFTPConn(\%common,1); # only done if FTP{remoteHost} is given to avoid errors.
+    for my $load (@loads) {
+      if (getFilesFromFTP($load)) {
+        getAdditionalDBData($load) if $getAddtlDBData;
+        readFileData($load);
+        dumpDataIntoDB($load);
+        markProcessed($load);
+      }
+    }
+  }
+
 =item processingEnd
 
 final processing steps for process ending (cleanup, FTP removal/archiving) or retry after pausing. No context argument as this always depends on all loads and/or the common definition (always runs in a faulting loop). Returns true if process ended and false if not. Using this as a check also works for do .. while or do .. until loops.
@@ -1354,7 +1363,7 @@ delete transferred files given in $filenames
 
 =item config
 
-parameter category for site global settings, defined in site.config and other associated configs loaded at INIT
+parameter category for site global settings, usually defined in site.config and other associated configs loaded at INIT
 
 =over 4
 
@@ -1438,7 +1447,7 @@ error mail address in non prod environment
 
 =item execute
 
-hash of parameters for current task execution which is not set by the user but can be used to set other parameters and control the flow
+hash of parameters for current task execution. This is not to be set by the user, but can be used to as information to set other parameters and control the flow
 
 =over 4
 
@@ -1560,19 +1569,23 @@ this hash can be used to additionaly set a constant to given fields: Fieldname =
 
 =item additionalLookup
 
-query used in getAdditionalDBData to retrieve lookup information from DB using readFromDBHash
+query used in getAdditionalDBData to retrieve lookup information from DB using EAI::DB::readFromDBHash
 
 =item additionalLookupKeys
 
 used for getAdditionalDBData, list of field names to be used as the keys of the returned hash
 
+=item countPercent
+
+percentage of progress in EAI::DB::storeInDB where indicator should be output (e.g. 10 for all 10% of progress). progress indicator is disabled if false.
+
 =item cutoffYr2000
 
-when storing date data with 2 year digits in dumpDataIntoDB/storeInDB, this is the cutoff where years are interpreted as 19XX (> cutoffYr2000) or 20XX (<= cutoffYr2000)
+when storing date data with 2 year digits in dumpDataIntoDB/EAI::DB::storeInDB, this is the cutoff where years are interpreted as 19XX (> cutoffYr2000) or 20XX (<= cutoffYr2000)
 
 =item columnnames
 
-returned column names from readFromDB and readFromDBHash, this is used in writeFileFromDB to pass column information from database to writeText
+returned column names from EAI::DB::readFromDB and EAI::DB::readFromDBHash, this is used in writeFileFromDB to pass column information from database to writeText
 
 =item database
 
@@ -1580,23 +1593,23 @@ database to be used for connecting
 
 =item debugKeyIndicator
 
-used in dumpDataIntoDB/storeInDB as an indicator for keys for debugging information if primkey not given (errors are shown with this key information). Format is the same as for primkey
+used in dumpDataIntoDB/EAI::DB::storeInDB as an indicator for keys for debugging information if primkey not given (errors are shown with this key information). Format is the same as for primkey
 
 =item deleteBeforeInsertSelector
 
-used in dumpDataIntoDB/storeInDB to delete specific data defined by keydata before an insert (first occurrence in data is used for key values). Format is the same as for primkey ("key1 = ? ...")
+used in dumpDataIntoDB/EAI::DB::storeInDB to delete specific data defined by keydata before an insert (first occurrence in data is used for key values). Format is the same as for primkey ("key1 = ? ...")
 
 =item dontWarnOnNotExistingFields
 
-suppress warnings in dumpDataIntoDB/storeInDB for not existing fields
+suppress warnings in dumpDataIntoDB/EAI::DB::storeInDB for not existing fields
 
 =item dontKeepContent
 
-if table should be completely cleared before inserting data in dumpDataIntoDB/storeInDB
+if table should be completely cleared before inserting data in dumpDataIntoDB/EAI::DB::storeInDB
 
 =item doUpdateBeforeInsert
 
-invert insert/update sequence in dumpDataIntoDB/storeInDB, insert only done when upsert flag is set
+invert insert/update sequence in dumpDataIntoDB/EAI::DB::storeInDB, insert only done when upsert flag is set
 
 =item DSN
 
@@ -1604,15 +1617,15 @@ DSN String for DB connection
 
 =item incrementalStore
 
-when storing data with dumpDataIntoDB/storeInDB, avoid setting empty columns to NULL
+when storing data with dumpDataIntoDB/EAI::DB::storeInDB, avoid setting empty columns to NULL
 
 =item ignoreDuplicateErrs
 
-ignore any duplicate errors in dumpDataIntoDB/storeInDB
+ignore any duplicate errors in dumpDataIntoDB/EAI::DB::storeInDB
 
 =item keyfields
 
-used for readFromDBHash, list of field names to be used as the keys of the returned hash
+used for EAI::DB::readFromDBHash, list of field names to be used as the keys of the returned hash
 
 =item longreadlen
 
@@ -1636,15 +1649,15 @@ port to be added to server in environment hash lookup: {Prod => "", Test => ""}
 
 =item postDumpExecs
 
-array for execs done in dumpDataIntoDB after postDumpProcessing and before commit/rollback: [{execs => ['',''], condition => ''}]. doInDB all execs if condition (evaluated string or anonymous sub: condition => sub {...}) is fulfilled
+array for DB executions done in dumpDataIntoDB after postDumpProcessing and before commit/rollback: [{execs => ['',''], condition => ''}]. For all execs a doInDB is executed if condition (evaluated string or anonymous sub: condition => sub {...}) is fulfilled
 
 =item postDumpProcessing
 
-done in dumpDataIntoDB after storeInDB, execute perl code in postDumpProcessing (evaluated string or anonymous sub: postDumpProcessing => sub {...})
+done in dumpDataIntoDB after EAI::DB::storeInDB, execute perl code in postDumpProcessing (evaluated string or anonymous sub: postDumpProcessing => sub {...})
 
 =item postReadProcessing
 
-done in writeFileFromDB after readFromDB, execute perl code in postReadProcessing (evaluated string or anonymous sub: postReadProcessing => sub {...})
+done in writeFileFromDB after EAI::DB::readFromDB, execute perl code in postReadProcessing (evaluated string or anonymous sub: postReadProcessing => sub {...})
 
 =item prefix
 
@@ -1660,11 +1673,11 @@ for password setting, either directly (insecure -> visible) or via sensitive loo
 
 =item query
 
-query statement used for readFromDB and readFromDBHash
+query statement used for EAI::DB::readFromDB and EAI::DB::readFromDBHash
 
 =item schemaName
 
-schemaName used in dumpDataIntoDB/storeInDB, if tableName contains dot the extracted schema from tableName overrides this. Needed for datatype information!
+schemaName used in dumpDataIntoDB/EAI::DB::storeInDB, if tableName contains dot the extracted schema from tableName overrides this. Needed for datatype information!
 
 =item server
 
@@ -1672,11 +1685,11 @@ DB Server in environment hash lookup: {Prod => "", Test => ""}
 
 =item tablename
 
-the table where data is stored in dumpDataIntoDB/storeInDB
+the table where data is stored in dumpDataIntoDB/EAI::DB::storeInDB
 
 =item upsert
 
-in dumpDataIntoDB/storeInDB, should both update and insert be done. doUpdateBeforeInsert=0: after the insert failed (because of duplicate keys) or doUpdateBeforeInsert=1: insert after the update failed (because of key not exists)?
+in dumpDataIntoDB/EAI::DB::storeInDB, should both update and insert be done. doUpdateBeforeInsert=0: after the insert failed (because of duplicate keys) or doUpdateBeforeInsert=1: insert after the update failed (because of key not exists)?
 
 =item user
 
@@ -1686,7 +1699,7 @@ for setting username in db connection, either directly (insecure -> visible) or 
 
 =item File
 
-File parsing specific configs
+File fetching and parsing specific configs. File{filename} is also used for FTP
 
 =over 4
 
@@ -1696,11 +1709,15 @@ when redoing, usually the cutoff (datetime/redo info) is removed following a pat
 
 =item columns
 
-for writeText: Hash of data fields, that are to be written (in order of keys)
+for EAI::File::writeText: Hash of data fields, that are to be written (in order of keys)
 
 =item columnskip
 
-for writeText: boolean hash of column names that should be skipped when writing the file ({column1ToSkip => 1, column2ToSkip => 1, ...})
+for EAI::File::writeText: boolean hash of column names that should be skipped when writing the file ({column1ToSkip => 1, column2ToSkip => 1, ...})
+
+=item countPercent
+
+percentage of progress in EAI::File::readText where indicator should be output (e.g. 10 for all 10% of progress). progress indicator is disabled if false.
 
 =item dontKeepHistory
 
@@ -1732,23 +1749,23 @@ the name of the file to be read, can also be a glob spec to retrieve multiple fi
 
 =item firstLineProc
 
-processing done when reading the first line of text files (used to retrieve information from a header line, like reference date etc.). The line is available in $_.
+processing done when reading the first line of text files in EAI::File::readText (used to retrieve information from a header line, like reference date etc.). The line is available in $_.
 
 =item format_allowLinefeedInData
 
-line feeds in values don't create artificial new lines/records, only works for csv quoted data
+line feeds in values don't create artificial new lines/records, only works for csv quoted data in EAI::File::readText
 
 =item format_autoheader
 
-assumption: header exists in file and format_header should be derived from there. only for readText
+assumption: header exists in file and format_header should be derived from there. only for EAI::File::readText
 
 =item format_beforeHeader
 
-additional String to be written before the header in write text
+additional String to be written before the header in EAI::File::writeText
 
 =item format_dateColumns
 
-numeric array of columns that contain date values (special parsing) in excel files
+numeric array of columns that contain date values (special parsing) in excel files (EAI::File::readExcel)
 
 =item format_decimalsep
 
@@ -1756,7 +1773,7 @@ decimal separator used in numbers of sourcefile (defaults to . if not given)
 
 =item format_defaultsep
 
-default separator when format_sep not given (usually in site.config), if not given, "\t" is used as default.
+default separator when format_sep not given (usually in site.config), if no separator is given (not needed for EAI::File::readExcel/EAI::File::readXML), "\t" is used for parsing format_header and format_targetheader.
 
 =item format_encoding
 
@@ -1772,7 +1789,7 @@ format_sep separated string containing header fields (optional in excel files, o
 
 =item format_headerskip
 
-skip until row-number for checking header row against format_header in excel files
+skip until row-number for checking header row against format_header in EAI::File::readExcel
 
 =item format_eol
 
@@ -1780,7 +1797,7 @@ for quoted csv specify special eol character (allowing newlines in values)
 
 =item format_fieldXpath
 
-for XML reading, hash with field => xpath to content association entries
+for EAI::File::readXML, hash with field => xpath to content association entries
 
 =item format_fix
 
@@ -1788,7 +1805,7 @@ for text writing, specify whether fixed length format should be used (requires f
 
 =item format_namespaces
 
-for XML reading, hash with alias => namespace association entries
+for EAI::File::readXML, hash with alias => namespace association entries
 
 =item format_padding
 
@@ -1804,23 +1821,23 @@ special parsing/writing of quoted csv data using Text::CSV
 
 =item format_sep
 
-separator string for csv format, regex for split for other separated formats. Also needed for splitting up format_header and format_targetheader (Excel and XML-formats use tab as default separator here).
+separator string for EAI::File::readText and EAI::File::writeText csv formats, a regex for splitting other separated formats. If format_sep is not explicitly given as a regex here (=> qr//), then it is assumed to be a regex by split, however this causes surprising effects with regex metacharacters (should be quoted, such as qr/\|/)! Also used for splitting format_header and format_targetheader (Excel and XML-formats use tab as default separator here).
 
 =item format_sepHead
 
-special separator for header row in write text, overrides format_sep
+special separator for header row in EAI::File::writeText, overrides format_sep
 
 =item format_skip
 
-either numeric or string, skip until row-number if numeric or appearance of string otherwise in reading textfile
+either numeric or string, skip until row-number if numeric or appearance of string otherwise in reading textfile. If numeric, format_skip can also be used in EAI::File::readExcel
 
 =item format_stopOnEmptyValueColumn
 
-for excel reading, stop row parsing when a cell with this column number is empty (denotes end of data, to avoid very long parsing).
+for EAI::File::readExcel, stop row parsing when a cell with this column number is empty (denotes end of data, to avoid very long parsing).
 
 =item format_suppressHeader
 
-for textfile writing, suppress output of header
+for text and excel file writing, suppress output of header
 
 =item format_targetheader
 
@@ -1832,15 +1849,15 @@ thousand separator used in numbers of sourcefile (defaults to , if not given)
 
 =item format_worksheetID
 
-worksheet number for excel reading, this should always work
+worksheet number for EAI::File::readExcel, this should always work
 
 =item format_worksheet
 
-alternatively the worksheet name can be passed, this only works for new excel format (xlsx)
+alternatively the worksheet name can be passed for EAI::File::readExcel, this only works for new excel format (xlsx)
 
 =item format_xlformat
 
-excel format for parsing, also specifies excel parsing
+excel format for parsing, also specifies that excel parsing should be done
 
 =item format_xpathRecordLevel
 
@@ -1944,11 +1961,11 @@ maximum number of tries for connecting in login procedure
 
 =item noDirectRemoteDirChange
 
-if no direct change into absolute paths (/some/path/to/change/into) ist possible then set this to 1, this separates the change into setcwd(undef) and setcwd(remoteDir)
+if no direct change into absolute paths (/some/path/to/change/into) ist possible then set this to 1, this does a separated change into setcwd(undef) and setcwd(remoteDir)
 
 =item onlyArchive
 
-only archive/remove on the FTP server, requires archiveDir to be set
+only archive/remove given files on the FTP server, requires archiveDir to be set
 
 =item path
 
@@ -2070,7 +2087,7 @@ logfile where command given in uploadCMD writes output (for error handling)
 
 =item task
 
-contains parameters used on the task script level
+contains parameters used on the task script level, only available for %common parameter hash.
 
 =over 4
 

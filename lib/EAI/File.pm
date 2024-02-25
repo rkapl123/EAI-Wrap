@@ -1,4 +1,4 @@
-package EAI::File 1.910;
+package EAI::File 1.911;
 
 use strict; use feature 'unicode_strings'; use warnings; no warnings 'uninitialized';
 use Exporter qw(import);use Text::CSV();use Data::XLSX::Parser();use Spreadsheet::ParseExcel();use Spreadsheet::WriteExcel();use Excel::Writer::XLSX();use Data::Dumper qw(Dumper);use XML::LibXML();use XML::LibXML::Debugging();
@@ -304,15 +304,15 @@ sub readExcel ($$$;$) {
 	for my $filename (@filenames) {
 		my $startRow = 1; # starting data row
 		$startRowHeader = 1; # starting header row for check (if format_header is defined)
-		if ($File->{format_skip}) {
-			$logger->debug("skipping ".$File->{format_skip}." rows for data begin"); 
-			$startRow += $File->{format_skip}; # skip additional rows for data begin, row semantics is 1 based
+		if ($skip =~ /^\d+$/) {
+			$logger->debug("skipping ".$skip." rows for data begin"); 
+			$startRow += $skip; # skip additional rows for data begin, row semantics is 1 based
 		}
 		if ($File->{format_headerskip}) {
 			$logger->debug("skipping ".$File->{format_headerskip}." rows for header row (1)"); 
 			$startRowHeader += $File->{format_headerskip}; # skip additional rows for header row, row semantics is 1 based
 		}
-		if (!$File->{format_skip} and $File->{format_header}) {
+		if (!$skip and $File->{format_header}) {
 			$logger->debug("setting data begin to \$startRowHeader ($startRowHeader) + 1 as format_header given and no format_skip found"); 
 			$startRow = $startRowHeader + 1; # set to header following row if format_skip not defined and format_header given
 		}
