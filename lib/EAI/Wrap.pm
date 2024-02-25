@@ -1,4 +1,4 @@
-package EAI::Wrap 1.909;
+package EAI::Wrap 1.910;
 
 use strict; use feature 'unicode_strings'; use warnings;
 use Exporter qw(import); use Data::Dumper qw(Dumper); use File::Copy qw(copy move); use Cwd qw(chdir); use Archive::Extract ();
@@ -15,7 +15,7 @@ BEGIN {
 };
 use EAI::Common; use EAI::DateUtil; use EAI::DB; use EAI::File; use EAI::FTP;
 
-our @EXPORT = qw(%common %config %execute @loads @optload %opt removeFilesinFolderOlderX openDBConn openFTPConn redoFiles getLocalFiles getFilesFromFTP getFiles checkFiles extractArchives getAdditionalDBData readFileData dumpDataIntoDB markProcessed writeFileFromDB putFileInLocalDir markForHistoryDelete uploadFileToFTP uploadFileCMD uploadFile processingEnd processingPause processingContinues moveFilesToHistory deleteFiles
+our @EXPORT = qw(%common %config %execute @loads @optload %opt removeFilesinFolderOlderX openDBConn openFTPConn redoFiles getLocalFiles getFilesFromFTP getFiles checkFiles extractArchives getAdditionalDBData readFileData dumpDataIntoDB markProcessed writeFileFromDB putFileInLocalDir markForHistoryDelete uploadFileToFTP uploadFileCMD uploadFile processingEnd processingPause processingContinues standardLoop moveFilesToHistory deleteFiles
 monthsToInt intToMonths addLocaleMonths get_curdate get_curdatetime get_curdate_dot formatDate formatDateFromYYYYMMDD get_curdate_dash get_curdate_gen get_curdate_dash_plus_X_years get_curtime get_curtime_HHMM get_lastdateYYYYMMDD get_lastdateDDMMYYYY is_first_day_of_month is_last_day_of_month get_last_day_of_month weekday is_weekend is_holiday is_easter addCalendar first_week first_weekYYYYMMDD last_week last_weekYYYYMMDD convertDate convertDateFromMMM convertDateToMMM convertToDDMMYYYY addDays addDaysHol addMonths subtractDays subtractDaysHol convertcomma convertToThousendDecimal get_dateseries parseFromDDMMYYYY parseFromYYYYMMDD convertEpochToYYYYMMDD make_time formatTime get_curtime_epochs localtime timelocal_modern
 newDBH beginWork commit rollback readFromDB readFromDBHash doInDB storeInDB deleteFromDB updateInDB getConn setConn
 readText readExcel readXML writeText writeExcel
@@ -462,7 +462,7 @@ sub readFileData ($) {
 	} elsif ($File->{format_XML}) {
 		$readSuccess = EAI::File::readXML($File, \@{$process->{data}}, $process->{filenames}, $redoDir);
 	} else {
-		$readSuccess = EAI::File::readText($File, \@{$process->{data}}, $process->{filenames}, $redoDir);
+		$readSuccess = EAI::File::readText($File, \@{$process->{data}}, $process->{filenames}, $redoDir, $process->{countPercent});
 	}
 	$process->{successfullyDone}.="readFileData" if $readSuccess;
 	return $readSuccess; # return error when reading files with readFile/readExcel/readXML
@@ -493,7 +493,7 @@ sub dumpDataIntoDB ($) {
 				EAI::DB::doInDB({doString => "delete from $table"});
 			}
 			$logger->info("dumping data to table $table");
-			if (! EAI::DB::storeInDB($DB, $process->{data})) {
+			if (! EAI::DB::storeInDB($DB, $process->{data},$process->{countPercent})) {
 				$logger->error("error storing DB data.. ");
 				$hadDBErrors=1;
 			}
@@ -900,6 +900,36 @@ sub processingContinues {
 		# at the first start always return true to enter the process loop
 		$processingInitialized = 1;
 		return 1;
+	}
+}
+
+sub standardLoop (;$) {
+	my $getAddtlDBData = shift;
+	my $logger = get_logger();
+	while (processingContinues()) {
+		if ($common{DB}{DSN}) {
+			openDBConn(\%common,1) or $logger->error("failed opening DB connection");
+		}
+		if ($common{FTP}{remoteHost}) {
+			openFTPConn(\%common,1) or $logger->error("failed opening FTP connection");
+		}
+		if (@loads) {
+			for my $load (@loads) {
+				if (getFiles($load)) {
+					getAdditionalDBData($load) if $getAddtlDBData;
+					readFileData($load);
+					dumpDataIntoDB($load);
+					markProcessed($load);
+				}
+			}
+		} else {
+			if (getFiles(\%common)) {
+				getAdditionalDBData(\%common) if $getAddtlDBData;
+				readFileData(\%common);
+				dumpDataIntoDB(\%common);
+				markProcessed(\%common);
+			}
+		}
 	}
 }
 
@@ -1622,7 +1652,7 @@ key for sensitive information (e.g. pwd and user) in config{sensitive} or system
 
 =item primkey
 
-primary key indicator to be used for update statements, format: "key1 = ? AND key2 = ? ..."
+primary key indicator to be used for update statements, format: "key1 = ? AND key2 = ? ...". Not necessary for dumpDataIntoDB/storeInDB if dontKeepContent is set to 1, here the whole table content is removed before storing
 
 =item pwd
 
@@ -1646,11 +1676,11 @@ the table where data is stored in dumpDataIntoDB/storeInDB
 
 =item upsert
 
-in dumpDataIntoDB/storeInDB, should an update be done after the insert failed (because of duplicate keys) or insert after the update failed (because of key not exists)?
+in dumpDataIntoDB/storeInDB, should both update and insert be done. doUpdateBeforeInsert=0: after the insert failed (because of duplicate keys) or doUpdateBeforeInsert=1: insert after the update failed (because of key not exists)?
 
 =item user
 
-for user setting, either directly (insecure -> visible) or via sensitive lookup
+for setting username in db connection, either directly (insecure -> visible) or via sensitive lookup
 
 =back
 
@@ -1698,11 +1728,11 @@ additional field based processing code: fieldCode => {field1 => 'perl code', ..}
 
 =item filename
 
-the name of the file to be read
+the name of the file to be read, can also be a glob spec to retrieve multiple files. This information is also used for FTP and retrieval and local file copying.
 
 =item firstLineProc
 
-processing done in reading the first line of text files
+processing done when reading the first line of text files (used to retrieve information from a header line, like reference date etc.). The line is available in $_.
 
 =item format_allowLinefeedInData
 
@@ -1991,6 +2021,10 @@ additional data retrieved from database with EAI::Wrap::getAdditionalDBData
 =item archivefilenames
 
 in case a zip archive package is retrieved, the filenames of these packages are kept here, necessary for cleanup at the end of the process
+
+=item countPercent
+
+percentage for counting File text reading and DB storing, if > 0 on each reaching of the percentage in countPercent a progress is shown (e.g. every 10% if countPercent = 10)
 
 =item data
 

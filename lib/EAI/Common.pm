@@ -1,4 +1,4 @@
-package EAI::Common 1.909;
+package EAI::Common 1.910;
 
 use strict; use feature 'unicode_strings'; use warnings; no warnings 'uninitialized';
 use Exporter qw(import); use EAI::DateUtil; use Data::Dumper qw(Dumper); use Getopt::Long qw(:config no_ignore_case); use Log::Log4perl qw(get_logger); use MIME::Lite (); use Scalar::Util qw(looks_like_number);
@@ -102,14 +102,14 @@ my %hashCheck = (
 		postDumpProcessing => "", # done in dumpDataIntoDB after storeInDB, execute perl code in postDumpProcessing (evaluated string or anonymous sub: postDumpProcessing => sub {...})
 		postReadProcessing => "", # done in writeFileFromDB after readFromDB, execute perl code in postReadProcessing (evaluated string or anonymous sub: postReadProcessing => sub {...})
 		prefix => "", # key for sensitive information (e.g. pwd and user) in config{sensitive} or system wide DSN in config{DB}{prefix}{DSN}. respects environment in $execute{env} if configured.
-		primkey => "", # primary key indicator to be used for update statements, format: "key1 = ? AND key2 = ? ..."
+		primkey => "", # primary key indicator to be used for update statements, format: "key1 = ? AND key2 = ? ...". Not necessary for dumpDataIntoDB/storeInDB if dontKeepContent is set to 1, here the whole table content is removed before storing
 		pwd => "", # for password setting, either directly (insecure -> visible) or via sensitive lookup
 		query => "", # query statement used for readFromDB and readFromDBHash
 		schemaName => "", # schemaName used in dumpDataIntoDB/storeInDB, if tableName contains dot the extracted schema from tableName overrides this. Needed for datatype information!
 		server => {}, # DB Server in environment hash lookup: {Prod => "", Test => ""}
 		tablename => "", # the table where data is stored in dumpDataIntoDB/storeInDB
-		upsert => 1, # in dumpDataIntoDB/storeInDB, should an update be done after the insert failed (because of duplicate keys) or insert after the update failed (because of key not exists)?
-		user => "", # for user setting, either directly (insecure -> visible) or via sensitive lookup
+		upsert => 1, # in dumpDataIntoDB/storeInDB, should both update and insert be done. doUpdateBeforeInsert=0: after the insert failed (because of duplicate keys) or doUpdateBeforeInsert=1: insert after the update failed (because of key not exists)?
+		user => "", # for setting username in db connection, either directly (insecure -> visible) or via sensitive lookup
 	},
 	File => { # File parsing specific configs
 		avoidRenameForRedo => 1, # when redoing, usually the cutoff (datetime/redo info) is removed following a pattern. set this flag to avoid this
@@ -121,8 +121,8 @@ my %hashCheck = (
 		extract => 1, # flag to specify whether to extract files from archive package (zip)
 		extension => "", # the extension of the file to be read (optional, used for redoFile)
 		fieldCode => {}, # additional field based processing code: fieldCode => {field1 => 'perl code', ..}, invoked if key equals either header (as in format_header) or targetheader (as in format_targetheader) or invoked for all fields if key is empty {"" => 'perl code'}. set $EAI::File::skipLineAssignment to true (1) if current line should be skipped from data. perl code can be an evaluated string or an anonymous sub: field1 => sub {...}
-		filename => "", # the name of the file to be read
-		firstLineProc => "", # processing done in reading the first line of text files
+		filename => "", # the name of the file to be read, can also be a glob spec to retrieve multiple files. This information is also used for FTP and retrieval and local file copying.
+		firstLineProc => "", # processing done when reading the first line of text files (used to retrieve information from a header line, like reference date etc.). The line is available in $_.
 		format_allowLinefeedInData => 1, # line feeds in values don't create artificial new lines/records, only works for csv quoted data
 		format_autoheader => 1, # assumption: header exists in file and format_header should be derived from there. only for readText
 		format_beforeHeader => "", # additional String to be written before the header in write text
@@ -195,6 +195,7 @@ my %hashCheck = (
 	process => { # used to pass information within each process (data, additionalLookupData, filenames, hadErrors or commandline parameters starting with interactive) and for additional configurations not suitable for DB, File or FTP (e.g. uploadCMD* and onlyExecFor)
 		additionalLookupData => {}, # additional data retrieved from database with EAI::Wrap::getAdditionalDBData
 		archivefilenames => [], # in case a zip archive package is retrieved, the filenames of these packages are kept here, necessary for cleanup at the end of the process
+		countPercent => 0, # percentage for counting File text reading and DB storing, if > 0 on each reaching of the percentage in countPercent a progress is shown (e.g. every 10% if countPercent = 10)
 		data => [], # loaded data: array (rows) of hash refs (columns)
 		filenames => [], # names of files that were retrieved and checked to be locally available for that load, can be more than the defined file in File->filename (due to glob spec or zip archive package)
 		filesProcessed => {}, # hash for checking the processed files, necessary for cleanup at the end of the whole task
@@ -258,7 +259,7 @@ sub readConfigFile ($) {
 		die("Error parsing config file $configfilename for script $execute{homedir}/$execute{scriptname}: $@") if $@;
 		die("Error executing config file $configfilename for script $execute{homedir}/$execute{scriptname}: $!") unless defined $return;
 	}
-	print STDOUT "read $configfilename\n";
+	print STDOUT "included $configfilename\n";
 }
 
 # get key info from $config{sensitive}{$prefix}{$key}. Also checks if $config{sensitive}{$prefix}{$key} is a hash, then get info from $config{sensitive}{$prefix}{$key}{$execute{env}}
@@ -542,10 +543,15 @@ sub setupLogging {
 	my $logAppender = Log::Log4perl->appenders()->{"FILE"}->{"appender"} if Log::Log4perl->appenders() and Log::Log4perl->appenders()->{"FILE"};
 	if ($logAppender) {
 		my $logprefix = get_curdate();
-		eval {$logprefix = $config{logprefixForLastLogfile}->()} if $config{logprefixForLastLogfile};
-		$logger->warn("error getting logprefix from \$config{logprefixForLastLogfile}: $@") if $@;
-		# if mail is watched next day, the rolled file is in $LogFPathDayBefore. Depending on appender, either append ".1" to filename or prepend $logprefix to it (default assumed date rotator, with current date in format yyyymmdd)
-		$LogFPathDayBefore = $logFolder."/".($logAppender->isa("Log::Dispatch::FileRotate") ? "" : $logprefix.".").$extendedScriptname.".log".($logAppender->isa("Log::Dispatch::FileRotate") ? ".1" : "");
+		unless ($logAppender->isa("Log::Dispatch::FileRotate")) {
+			$@ = ""; # reset bogus error messages from Log::Log4perl::init
+			eval {$logprefix = $config{logprefixForLastLogfile}->()} if $config{logprefixForLastLogfile};
+			$logger->warn("error getting logprefix from \$config{logprefixForLastLogfile}: $@") if $@;
+			# if mail is watched next day, the rolled file is in $LogFPathDayBefore. Depending on appender, either append ".1" to filename or prepend $logprefix to it (default assume a date rotator, with current date in format yyyymmdd)
+			$LogFPathDayBefore = "$logFolder/$logprefix.$extendedScriptname.log";
+		} else {
+			$LogFPathDayBefore = "$logFolder/$extendedScriptname.log.1";
+		}
 	}
 	if ($config{smtpServer}) {
 		# remove explicitly enumerated lookups (1:scriptname.pl, 2:scriptname.pl), the first such entry will be taken here
