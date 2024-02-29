@@ -1165,11 +1165,11 @@ A special merge is done for configurations defined in hash C<lookups>, which may
 
 =item %execute
 
-hash of parameters for current task execution which is not set by the user but can be used to set other parameters and control the flow. Most important here are C<$execute{env}>, giving the current used environment (Prod, Test, Dev, whatever), C<$execute{envraw}> (Production is empty here), the several file lists (files being procesed, files for deletion/moving, etc.), flags for ending/interrupting processing and directory locations as home and history
+hash of parameters for current task execution, which is not set by the user but can be read to set other parameters and control the flow. Most important here are C<$execute{env}>, giving the current used environment (Prod, Test, Dev, whatever), C<$execute{envraw}> (same as C<$execute{env}>, with Production being empty here), the several file lists (files being procesed, files for deletion/moving, etc.), flags for ending/interrupting processing and directory locations as the home dir and history folders for processed files.
 
-Detailed information about the several parameters used can be found in section L<execute|/execute> of the configuration parameter reference, there are parameters for files (L<filesProcessed|/filesProcessed>, L<filesToDelete|/filesToDelete>, L<filesToMoveinHistory|/filesToMoveinHistory>, L<filesToMoveinHistoryUpload|/filesToMoveinHistoryUpload>, L<retrievedFiles|/retrievedFiles>) and L<uploadFilesToDelete|/uploadFilesToDelete>, directories (L<homedir|/homedir>, L<historyFolder|/historyFolder>, L<historyFolderUpload|/historyFolderUpload> and L<redoDir|/redoDir>), process controlling parameters (L<failcount|/failcount>, L<firstRunSuccess|/firstRunSuccess>, L<retryBecauseOfError|/retryBecauseOfError>, L<retrySeconds|/retrySeconds> and L<processEnd|/processEnd>).
+Detailed information about these parameters can be found in section L<execute|/execute> of the configuration parameter reference, there are parameters for files (L<filesProcessed|/filesProcessed>, L<filesToDelete|/filesToDelete>, L<filesToMoveinHistory|/filesToMoveinHistory>, L<filesToMoveinHistoryUpload|/filesToMoveinHistoryUpload>, L<retrievedFiles|/retrievedFiles>) and L<uploadFilesToDelete|/uploadFilesToDelete>, directories (L<homedir|/homedir>, L<historyFolder|/historyFolder>, L<historyFolderUpload|/historyFolderUpload> and L<redoDir|/redoDir>), process controlling parameters (L<failcount|/failcount>, L<firstRunSuccess|/firstRunSuccess>, L<retryBecauseOfError|/retryBecauseOfError>, L<retrySeconds|/retrySeconds> and L<processEnd|/processEnd>).
 
-Retrying with checking C<$execute{processEnd}> (set during C<processingEnd()>, combining this call and check can be done in loop header at start with C<processingContinues()>) can happen because of two reasons: First, due to C<task =E<gt> {plannedUntil =E<gt> "HHMM"}> being set to a time until the task has to be retried, however this is done at most until midnight. Second, because an error occurred, in such a case C<$process-E<gt>{hadErrors}> is set for each load that failed. C<$process{successfullyDone}> is also important in this context as it prevents the repeated run of following API procedures if the loads didn't have an error during their execution:
+Retrying after C<$execute{processEnd}> is false (this parameter is set during C<processingEnd()>, combining this call and check can be done in loop header at start with C<processingContinues()>) can happen because of two reasons: First, due to C<task =E<gt> {plannedUntil =E<gt> "HHMM"}> being set to a time until the task has to be retried, however this is done at most until midnight. Second, because an error occurred, in such a case C<$process-E<gt>{hadErrors}> is set for each load that failed. C<$process{successfullyDone}> is also important in this context as it prevents the repeated run of following API procedures if the loads didn't have an error during their execution:
 
 L<openDBConn|/openDBConn>, L<openFTPConn|/openFTPConn>, L<getLocalFiles|/getLocalFiles>, L<getFilesFromFTP|/getFilesFromFTP>, L<getFiles|/getFiles>, L<extractArchives|/extractArchives>, L<getAdditionalDBData|/getAdditionalDBData>, L<readFileData|/readFileData>, L<dumpDataIntoDB|/dumpDataIntoDB>, L<writeFileFromDB|/writeFileFromDB>, L<putFileInLocalDir|/putFileInLocalDir>, L<uploadFileToFTP|/uploadFileToFTP>, L<uploadFileCMD|/uploadFileCMD>, and L<uploadFile|/uploadFile>.
 
@@ -1179,7 +1179,7 @@ After the first successful run of the task, C<$execute{firstRunSuccess}> is set 
 
 =item initialization
 
-The INIT procedure is executed at the task script initialization (when EAI::Wrap is used in the task script) and loads the site configuration, starts logging and reads commandline options. This means that everything passed to the script via command line may be used in the definitions, especially the C<task{interactive.*}> parameters, here the name and the type of the parameter are not checked by the consistency checks (all other parameters not allowed or having the wrong type would throw an error). The task scripts configuration itself is then read with setupEAIWrap(), which is usually called immediately after the datastructures for configurations have been finished.
+The INIT procedure is executed at the task script initialization (when EAI::Wrap is "use"d in the task script) and loads the site configuration, starts logging and reads commandline options. This means that everything passed to the script via command line may be used in the definitions, especially the C<task{interactive.*}> parameters, here the name and the type of the parameter are not checked by the consistency checks (other parameters that are not allowed or have the wrong type throw an error). The task script's configuration itself is then read with setupEAIWrap(), which is usually called immediately after the datastructures for configurations have been finished.
 
 =back
 
@@ -1311,21 +1311,34 @@ combines above two procedures in a general procedure to upload files via FTP or 
 
 =item standardLoop (;$)
 
-executes the given configuration in a standard extract/transform/load loop (shown simplified below), depending on whether loads are given an additional loop is done for all loads within the @loads list. 
+executes the given configuration in a standard extract/transform/load loop (as shown below), depending on whether loads are given an additional loop is done for all loads within the @loads list. 
 If the definition only contains the common hash then there is no loop. The additional optional parameter $getAddtlDBData activates getAdditionalDBData before reading in file data.
 No other processing is possible (creating files from data, uploading, etc.)
 
   while (processingContinues()) {
-    openDBConn(\%common,1); # only done if DB{DSN} is given to avoid errors.
-    openFTPConn(\%common,1); # only done if FTP{remoteHost} is given to avoid errors.
-    for my $load (@loads) {
-      if (getFilesFromFTP($load)) {
-        getAdditionalDBData($load) if $getAddtlDBData;
-        readFileData($load);
-        dumpDataIntoDB($load);
-        markProcessed($load);
-      }
-    }
+  	if ($common{DB}{DSN}) {
+  		openDBConn(\%common,1) or $logger->error("failed opening DB connection");
+  	}
+  	if ($common{FTP}{remoteHost}) {
+  		openFTPConn(\%common,1) or $logger->error("failed opening FTP connection");
+  	}
+  	if (@loads) {
+  		for my $load (@loads) {
+  			if (getFiles($load)) {
+  				getAdditionalDBData($load) if $getAddtlDBData;
+  				readFileData($load);
+  				dumpDataIntoDB($load);
+  				markProcessed($load);
+  			}
+  		}
+  	} else {
+  		if (getFiles(\%common)) {
+  			getAdditionalDBData(\%common) if $getAddtlDBData;
+  			readFileData(\%common);
+  			dumpDataIntoDB(\%common);
+  			markProcessed(\%common);
+  		}
+  	}
   }
 
 =item processingEnd
